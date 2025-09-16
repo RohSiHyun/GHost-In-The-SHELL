@@ -1,0 +1,39 @@
+{
+  "format_version": "1.1",
+  "package_name": "chromium/third_party/libei/linux-amd64",
+  "install_mode": "copy",
+  "actual_install_mode": "copy",
+  "files": [
+    {
+      "name": "bin/ei-debug-events",
+      "size": 427160,
+      "executable": true,
+      "hash": "yx0_2ZDEvpqlPpcOUS8mCPPqrthBEgjL0DIYhgcNzQAC"
+    },
+    {
+      "name": "include/libei-1.0/libei.h",
+      "size": 68718,
+      "hash": "ZDmifUSKh09NDMtj5MnxxUPCCzix1EsXPxahm6j9LRIC"
+    },
+    {
+      "name": "include/libei-1.0/libeis.h",
+      "size": 49003,
+      "hash": "Sy3CuRFxGZ05HIl2NN4BTjnLItwdy38r52i4wvV7e0YC"
+    },
+    {
+      "name": "lib64/libei.a",
+      "size": 852234,
+      "hash": "ohP72qpksqAzrfUvj0AhNX9JGTIzfO7ILMLPQdMuc68C"
+    },
+    {
+      "name": "lib64/libeis.a",
+      "size": 895820,
+      "hash": "OKkTwb29dHbx0Nhb827V0pq4hh6kbBl_lcuHu-5nR3YC"
+    },
+    {
+      "name": "lib64/libmunit.a",
+      "size": 83360,
+      "hash": "ERV8OyFmKcP707j_oFbrtWs0zyVKQYRVANvi2DL8BjIC"
+    }
+  ]
+}

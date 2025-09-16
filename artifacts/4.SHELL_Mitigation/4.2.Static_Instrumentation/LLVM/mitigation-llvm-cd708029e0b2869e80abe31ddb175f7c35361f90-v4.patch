@@ -1,0 +1,448 @@
+diff --git a/clang/lib/CMakeLists.txt b/clang/lib/CMakeLists.txt
+index 14ba55360fe0..bf730b738c98 100644
+--- a/clang/lib/CMakeLists.txt
++++ b/clang/lib/CMakeLists.txt
+@@ -35,3 +35,5 @@ add_subdirectory(Support)
+ if(CLANG_ENABLE_CIR)
+   add_subdirectory(CIR)
+ endif()
++
++add_subdirectory(Custom)
+\ No newline at end of file
+diff --git a/clang/lib/Custom/CMakeLists.txt b/clang/lib/Custom/CMakeLists.txt
+new file mode 100644
+index 000000000000..37d5ed1ff553
+--- /dev/null
++++ b/clang/lib/Custom/CMakeLists.txt
+@@ -0,0 +1,18 @@
++project(PtrInstrumentPass LANGUAGES CXX)
++
++find_package(LLVM REQUIRED CONFIG HINTS "${LLVM_CMAKE_DIR}")
++list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
++include(AddLLVM)
++
++# Build as a true Clang component (so we can link into clang itself)
++add_llvm_component_library(PtrInstrumentPass
++  InstrumentPass.cpp
++  DEPENDS
++    intrinsics_gen            # only if you actually use any intrinsics
++  LINK_COMPONENTS
++    Core
++    Support
++    Analysis                  # getUnderlyingObject
++    TransformUtils            # IRBuilder helpers
++    PassBuilder               # createModuleToFunctionPassAdaptor
++)
+diff --git a/clang/lib/Custom/InstrumentPass.cpp b/clang/lib/Custom/InstrumentPass.cpp
+new file mode 100644
+index 000000000000..55ab87a3e01c
+--- /dev/null
++++ b/clang/lib/Custom/InstrumentPass.cpp
+@@ -0,0 +1,396 @@
++#include "llvm/IR/PassManager.h"
++#include "llvm/IR/IRBuilder.h"
++#include "llvm/IR/DataLayout.h"
++#include "llvm/Analysis/ValueTracking.h"
++#include "llvm/IR/Constants.h"
++#include "llvm/IR/Module.h"
++#include "llvm/IR/Function.h"
++#include "llvm/IR/InstrTypes.h"
++#include "llvm/IR/Instructions.h"
++#include "llvm/IR/Operator.h"
++#include "llvm/ADT/StringRef.h"
++#include "llvm/ADT/SmallPtrSet.h"
++#include "llvm/ADT/SmallVector.h"
++
++// Legacy PM adapters:
++
++
++
++// New PM & plugin glue (we still wrap into legacy below):
++#include "llvm/Passes/PassBuilder.h"
++#include "llvm/Passes/PassPlugin.h"
++
++using namespace llvm;
++namespace {
++
++static const uint64_t PAGE_SIZE = (0x10000);
++
++static uint64_t roundUpToPage(uint64_t N) {
++  return ((N + PAGE_SIZE - 1) / PAGE_SIZE) * PAGE_SIZE;
++}
++
++Value *findStoreValueForAlloca(AllocaInst *AI, LoadInst *LI, Module *M) {
++  LLVMContext &C = AI->getContext();
++  // Worklist of basic blocks + an optional “stop point” instruction
++  SmallVector<std::pair<BasicBlock*, Instruction*>, 8> Work;
++  SmallPtrSet<BasicBlock*, 8> Visited;
++
++  // Start in LI’s block, stopping at LI
++  Work.emplace_back(LI->getParent(), LI);
++
++  while (!Work.empty()) {
++    auto [BB, StopI] = Work.pop_back_val();
++    // Avoid revisiting the same block at the same or earlier point
++    if (!Visited.insert(BB).second)
++      continue;
++
++    // Scan backwards in this block
++    bool hitLoad = false;
++    for (auto it = BB->end(); it != BB->begin();) {
++      --it;
++      Instruction &I = *it;
++      // If we’ve reached the stop-point, break
++      if (&I == StopI) {
++        hitLoad = true;
++        continue;
++      }
++      // Only start looking *after* we’ve passed StopI
++      if (!hitLoad && StopI)
++        continue;
++
++      // Check for a store into AI
++      if (auto *SI = dyn_cast<StoreInst>(&I)) {
++        if (SI->getPointerOperand() == AI) {
++          // Found the reaching store—return its value operand
++          if(auto *NCI = dyn_cast<CallInst>(SI->getValueOperand())){
++            StringRef OldName = NCI->getCalledFunction()->getName();
++            if(OldName == "malloc") {
++              StringRef NewName = "custom_malloc";
++              FunctionType *FTy = NCI->getFunctionType();
++              auto Custom = M->getOrInsertFunction(NewName, FTy).getCallee();
++              NCI->setCalledFunction(cast<Function>(Custom));
++            }
++          }
++        }
++      }
++    }
++
++    // No store in this block; add all predecessors, with null stop-point
++    for (BasicBlock *Pred : predecessors(BB)) {
++      Work.emplace_back(Pred, /*StopI=*/nullptr);
++    }
++  }
++
++  return nullptr;
++
++}
++
++CallInst *findAllocSite(Value *V, SmallPtrSetImpl<Value*> &Visited, Module *M = nullptr) {
++  if (!V || !V->getType()->isPointerTy()) return nullptr;
++  if (!Visited.insert(V).second) return nullptr;
++
++  if (auto *CI = dyn_cast<CallInst>(V)) {
++    StringRef N = CI->getCalledFunction()->getName();
++    if (N == "malloc") 
++      return CI;
++  }
++
++  // peel off trivial casts/GEPs...
++  if (auto *BC = dyn_cast<BitCastInst>(V))
++    return findAllocSite(BC->getOperand(0), Visited, M);
++  if (auto *ITP = dyn_cast<IntToPtrInst>(V))
++    return findAllocSite(ITP->getOperand(0), Visited, M);
++  if (auto *GEP = dyn_cast<GetElementPtrInst>(V))
++    return findAllocSite(GEP->getPointerOperand(), Visited, M);
++
++  // **handle loads specially**:
++  if (auto *LI = dyn_cast<LoadInst>(V)) {
++    if (auto *AI = dyn_cast<AllocaInst>(LI->getPointerOperand())) {
++      if (Value *Stored = findStoreValueForAlloca(AI, LI, M)) {
++        return findAllocSite(Stored, Visited, M);
++      }
++    }
++    return findAllocSite(LI->getPointerOperand(), Visited, M);
++  }
++
++  // PHI / select: try each incoming value
++  if (auto *PN = dyn_cast<PHINode>(V)) {
++    for (Value *In : PN->incoming_values())
++      if (auto *CI = findAllocSite(In, Visited, M))
++        return CI;
++  }
++  if (auto *SI = dyn_cast<SelectInst>(V)) {
++    if (auto *CI = findAllocSite(SI->getTrueValue(), Visited, M))
++      return CI;
++    return findAllocSite(SI->getFalseValue(), Visited, M);
++  }
++  return nullptr;
++}
++
++
++struct PtrInstrumentPass : PassInfoMixin<PtrInstrumentPass> {
++  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
++    auto &DL = M.getDataLayout();
++    LLVMContext &C = M.getContext();
++
++    FunctionCallee printfF = M.getOrInsertFunction(
++      "printf",
++      FunctionType::get(IntegerType::getInt32Ty(C),
++                        { PointerType::getUnqual(Type::getInt8Ty(C)) },
++                        true));
++
++    FunctionCallee ioctlF = M.getOrInsertFunction(
++     "ioctl",
++    FunctionType::get(IntegerType::getInt32Ty(C),
++                      { IntegerType::getInt32Ty(C),IntegerType::getInt64Ty(C) , PointerType::getUnqual(Type::getInt8Ty(C)) },
++                      false));
++
++    FunctionCallee openF = M.getOrInsertFunction(
++      "open",
++      FunctionType::get(IntegerType::getInt32Ty(C),
++                        { PointerType::getUnqual(Type::getInt8Ty(C)), IntegerType::getInt32Ty(C) },
++                        false));
++    
++    FunctionCallee perrorF = M.getOrInsertFunction(
++      "perror",
++      FunctionType::get(Type::getVoidTy(C),
++                        { PointerType::getUnqual(Type::getInt8Ty(C)) },
++                        false));
++
++    FunctionCallee exitF = M.getOrInsertFunction(
++      "exit",
++      FunctionType::get(Type::getVoidTy(C),
++                        { IntegerType::getInt32Ty(C) },
++                        false));
++    
++    Function *MallocFn = M.getFunction("malloc");
++    Function *mainF = M.getFunction("main");
++    if (!mainF) {
++      errs() << "PtrInstrumentPass: No main function found in the module.\n";
++      return PreservedAnalyses::all();
++    }
++
++    BasicBlock *entryBB = &mainF->getEntryBlock();
++    IRBuilder<> B(entryBB, entryBB->begin());
++
++    Type *i32Ty = Type::getInt32Ty(C);
++    // 1a) Declare the int FD global (initialized to -1)
++    Constant *GV_fd_var = M.getOrInsertGlobal("__cuda_device_stub__uvm_fd", i32Ty);
++    auto *GV_fd = cast<GlobalVariable>(GV_fd_var);
++    
++    GV_fd->setLinkage(GlobalValue::ExternalLinkage);
++    GV_fd->setInitializer(ConstantInt::get(i32Ty, -1));
++
++    Value *pathStr = B.CreateGlobalStringPtr("/dev/nvidia-uvm", "__cuda_device_stub__uvm_path");
++    Value *fdVal   = B.CreateCall(openF, { pathStr, ConstantInt::get(Type::getInt32Ty(C), 2) }, "uvm_fd.custom");
++    B.CreateStore(fdVal, GV_fd);
++    Value *fdLoad = B.CreateLoad(Type::getInt32Ty(C), GV_fd, "__cuda_device_stub__uvm_fd");
++    Value *isErr  = B.CreateICmpSLT(fdLoad, ConstantInt::get(Type::getInt32Ty(C), 0), "uvm_fd.is_err");
++
++    BasicBlock *contBB = entryBB->splitBasicBlock(B.GetInsertPoint(), "uvm_fd.cont");
++    BasicBlock *errBB = BasicBlock::Create(C, "uvm_fd.err", mainF, contBB);
++
++    entryBB->getTerminator()->eraseFromParent();
++    B.SetInsertPoint(entryBB);
++    B.CreateCondBr(isErr, errBB, contBB);
++
++    // populate errBB:
++    B.SetInsertPoint(errBB);
++    Value *msgOpen = B.CreateGlobalStringPtr("Failed to open /dev/nvidia-uvm", "msg");
++    B.CreateCall(perrorF, { msgOpen });
++    B.CreateCall(exitF, { ConstantInt::get(Type::getInt32Ty(C), 1) });
++    B.CreateUnreachable();
++
++    SmallVector<CallBase*, 64> Calls;
++    for (Function &F : M) {
++      for (BasicBlock &BB : F) {
++      for (Instruction &I : BB) {
++        if (auto *CB = dyn_cast<CallBase>(&I)) {
++        if (Function *Callee = CB->getCalledFunction()) {
++          if (Callee->getName().contains("__device_stub__")) {
++          Calls.push_back(CB);
++          }
++        }
++        }
++      }
++      }
++    }
++ 
++    Function *EndTarget = M.getFunction("cudaDeviceSynchronize");
++    if (!EndTarget) {
++      errs() << "PtrInstrumentPass: No cudaDeviceSynchronize function found in the module.\n";
++      return PreservedAnalyses::all();
++    }
++    
++    SmallVector<CallBase*, 64> EndCalls;
++    for(User *U : EndTarget->users()) {
++      if (auto *CB = dyn_cast<CallBase>(U)) {
++        if(CB->getCalledFunction() == EndTarget) {
++          EndCalls.push_back(CB);
++        }
++      }
++    }
++
++    for (CallBase *CB : Calls) {
++      IRBuilder<> B(CB);
++
++      // For each argument
++      for (unsigned i = 0; i < CB->arg_size(); ++i) {
++        Value *Arg = CB->getArgOperand(i);
++
++
++        if (!Arg->getType()->isPointerTy())
++          continue;
++
++        SmallPtrSet<Value*, 16> Visited;
++        if( auto *AllocCI = findAllocSite(Arg, Visited, &M)) {
++          // Found a potential allocation site
++
++        }
++        
++
++        
++        // 1) Compute the static “base” object
++        Value *Obj  = getUnderlyingObject(Arg);
++        Type  *I8Ty = Type::getInt8Ty(C);
++        PointerType *I8PtrTy = I8Ty->getPointerTo(0);
++        Value *BasePtr = B.CreateBitCast(Obj,
++                         I8PtrTy);
++
++        // 2) Compute size in bytes
++        uint64_t staticSize = 0;
++
++
++
++        if (auto *AI = dyn_cast<AllocaInst>(Obj)) {
++
++          IRBuilder<> BS(AI);
++         
++          Value *SP      = BS.CreateStackSave();              // i64  
++          Value *SPi     = BS.CreatePtrToInt(SP, BS.getInt64Ty());    // i64
++
++          Value *PageSz  = ConstantInt::get(BS.getInt64Ty(), (0x10000)); // 32K page size
++          Value *Rem     = BS.CreateURem(SPi, PageSz);      
++
++          Value *Inv     = BS.CreateSub(PageSz, Rem, "inv");
++          Value *PadBytes= BS.CreateURem(Inv, PageSz, "pad_bytes");
++
++          AllocaInst *PadAI = BS.CreateAlloca(BS.getInt8Ty(), 0, PadBytes, "pad_alloca");
++          PadAI->setAlignment(Align((0x10000))); // align to page size
++
++          // stack array
++          Type *ETy = AI->getAllocatedType();
++          uint64_t elemSize = DL.getTypeAllocSize(ETy);
++          // handle variable‐length allocas conservatively:
++          if (auto *CSA = dyn_cast<ConstantInt>(AI->getArraySize())){
++            staticSize = DL.getTypeAllocSize(ETy);
++
++            uint64_t padded = roundUpToPage(staticSize);
++            Value *padCount = ConstantInt::get(BS.getInt64Ty(), padded);
++            AllocaInst *newRaw = BS.CreateAlloca(Type::getInt8Ty(BS.getContext()), 0, padCount, "pad_alloca");
++            Value *newPtr = BS.CreateBitCast(newRaw, AI->getType());
++            AI->replaceAllUsesWith(newPtr);
++            AI->eraseFromParent();
++            auto *CSA2 = dyn_cast<ConstantInt>(newRaw->getArraySize());
++            uint64_t totalBytes = CSA2->getZExtValue() * DL.getTypeAllocSize(newRaw->getAllocatedType());
++
++            Value * _BasePtr = getUnderlyingObject(newPtr);
++            BasePtr = BS.CreateBitCast(_BasePtr, I8PtrTy);
++
++          } else if (AI->isArrayAllocation()) {
++            // variable‐length alloca, assume 1 element
++            Value *numElements = AI->getArraySize();
++            Value *elemSizeVal = ConstantInt::get(BS.getInt64Ty(), elemSize);
++            Value *rawBytes = BS.CreateMul(BS.CreateZExtOrBitCast(numElements, BS.getInt64Ty()), elemSizeVal);
++
++            Value *add = BS.CreateAdd(rawBytes, ConstantInt::get(BS.getInt64Ty(), PAGE_SIZE));
++            Value *padded = BS.CreateUDiv(add, ConstantInt::get(BS.getInt64Ty(), PAGE_SIZE));
++            Value *paddedBytes = BS.CreateMul(padded, ConstantInt::get(BS.getInt64Ty(), PAGE_SIZE));
++          
++            AllocaInst *newRaw = BS.CreateAlloca(Type::getInt8Ty(BS.getContext()), 0, paddedBytes, "pad_alloca");
++            Value *newPtr = BS.CreateBitCast(newRaw, AI->getType());
++            
++            Value* _BasePtr = getUnderlyingObject(newPtr);
++            BasePtr = BS.CreateBitCast(_BasePtr, I8PtrTy);            
++            AI->replaceAllUsesWith(newPtr);
++            AI->eraseFromParent();
++            
++          } else {
++            
++          }
++          
++        } else if (auto *GV = dyn_cast<GlobalVariable>(Obj)) {
++          // global array
++          staticSize = DL.getTypeAllocSize(GV->getValueType());
++        }
++
++        Value *SizeVal = nullptr;
++        if (staticSize) {
++          SizeVal = ConstantInt::get(Type::getInt64Ty(C), staticSize);
++
++        } else {
++          continue;
++        }
++        
++        StructType *ParamST = StructType::create(C,{ 
++         Type::getInt64Ty(C),
++         PointerType::getUnqual(Type::getInt8Ty(C)),
++         Type::getInt64Ty(C)
++        }, "struct.UVM_SET_HMM_PARAMS_USER");
++
++        Value *paramsAlloca = B.CreateAlloca(ParamST);
++        Value *baseGEP = B.CreateStructGEP(ParamST, paramsAlloca, 0);
++        Value *sizeGEP = B.CreateStructGEP(ParamST, paramsAlloca, 1);
++        B.CreateStore(BasePtr, baseGEP);
++        B.CreateStore(SizeVal, sizeGEP);
++        Value *Fmt = B.CreateGlobalStringPtr("%p -> %llu\n");
++        B.CreateCall(printfF, {Fmt, BasePtr, SizeVal}); 
++
++        Value *reqVal = ConstantInt::get(Type::getInt64Ty(C), 2048UL);
++        Value *argVal = B.CreateBitCast(paramsAlloca, PointerType::getUnqual(Type::getInt8Ty(C)));
++        Value *fdLoad_local = B.CreateLoad(Type::getInt32Ty(C), GV_fd, "__cuda_device_stub__uvm_fd");
++        Value *ret = B.CreateCall(ioctlF, ArrayRef<Value*>{fdLoad_local, reqVal, argVal});
++
++
++        // 3) Call printf("%p -> %llu\n", base, size)
++        // 4) (Optionally) issue your ioctl here in the same way
++      }
++    }
++
++
++    for(CallBase *CB : EndCalls) {
++      IRBuilder<> B(CB);
++      Value *nullArg = ConstantPointerNull::get(PointerType::getUnqual(Type::getInt8Ty(C)));
++      Value *reqVal = ConstantInt::get(Type::getInt64Ty(C), 2049UL);
++      Value *fdLoad_local = B.CreateLoad(Type::getInt32Ty(C), GV_fd, "__cuda_device_stub__uvm_fd");
++      Value *ioRet = B.CreateCall(ioctlF, { fdLoad_local, reqVal, nullArg }, "io_null");
++      // Optionally, you can also issue an ioctl here
++    }
++
++    return PreservedAnalyses::none();  
++
++
++  }
++};
++} // end anonymous
++
++// -----------------------------------------------------------------------------
++// new-PM entrypoint (so you can still drive with -fpass-plugin if desired):
++extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo
++llvmGetPassPluginInfo() {
++  return {
++    LLVM_PLUGIN_API_VERSION, "PtrInstrumentPass", "v0.1",
++    [](PassBuilder &PB) {
++      PB.registerPipelineParsingCallback(
++        [](StringRef Name,
++           ModulePassManager &MPM,
++           ArrayRef<PassBuilder::PipelineElement>) {
++          if (Name == "ptr-instrument") {
++            MPM.addPass(PtrInstrumentPass());
++            return true;
++          }
++          return false;
++        });
++    }
++  };
++}
+diff --git a/clang/lib/Driver/CMakeLists.txt b/clang/lib/Driver/CMakeLists.txt
+index 32a4378ab499..0c9f6e0d6b40 100644
+--- a/clang/lib/Driver/CMakeLists.txt
++++ b/clang/lib/Driver/CMakeLists.txt
+@@ -96,5 +96,6 @@ add_clang_library(clangDriver
+ 
+   LINK_LIBS
+   clangBasic
++  PtrInstrumentPass
+   ${system_libs}
+   )

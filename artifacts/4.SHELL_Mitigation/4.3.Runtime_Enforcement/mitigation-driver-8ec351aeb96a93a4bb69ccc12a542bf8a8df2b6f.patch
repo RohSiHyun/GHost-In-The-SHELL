@@ -1,0 +1,366 @@
+diff --git a/kernel-open/nvidia-uvm/uvm.c b/kernel-open/nvidia-uvm/uvm.c
+index a9c182f8..137ce0a0 100644
+--- a/kernel-open/nvidia-uvm/uvm.c
++++ b/kernel-open/nvidia-uvm/uvm.c
+@@ -36,6 +36,7 @@
+ #include "uvm_linux_ioctl.h"
+ #include "uvm_hmm.h"
+ #include "uvm_mem.h"
++#include "uvm_ioctl.h"
+ #include "uvm_kvmalloc.h"
+ 
+ #define NVIDIA_UVM_DEVICE_NAME          "nvidia-uvm"
+@@ -44,6 +45,9 @@ static dev_t g_uvm_base_dev;
+ static struct cdev g_uvm_cdev;
+ static const struct file_operations uvm_fops;
+ 
++static NV_STATUS uvm_api_set_hmm(UVM_SET_HMM_PARAMS *params, struct file *filp);
++static NV_STATUS uvm_api_reset_hmm(UVM_RESET_HMM_PARAMS *params, struct file *filp);
++
+ bool uvm_file_is_nvidia_uvm(struct file *filp)
+ {
+     return (filp != NULL) && (filp->f_op == &uvm_fops);
+@@ -1047,6 +1051,8 @@ static long uvm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+ 
+         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_INITIALIZE,                  uvm_api_initialize);
+         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_MM_INITIALIZE,               uvm_api_mm_initialize);
++		UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_SET_HMM,                     uvm_api_set_hmm);
++		UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_RESET_HMM,                   uvm_api_reset_hmm);
+ 
+         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_PAGEABLE_MEM_ACCESS,            uvm_api_pageable_mem_access);
+         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_PAGEABLE_MEM_ACCESS_ON_GPU,     uvm_api_pageable_mem_access_on_gpu);
+@@ -1200,6 +1206,152 @@ static int uvm_chardev_create(void)
+     return 0;
+ }
+ 
++
++
++int get_hmm_entry(pid_t pid, int count)
++{
++    if(count > 64) {
++        return -1;
++    }
++
++    int idx = pid % 64;
++    if( hmm_table[idx].task_struct == NULL ) {
++        hmm_table[idx].pid = pid;
++        hmm_table[idx].task_struct = current;
++        return idx;
++    } else if( hmm_table[idx].pid == hmm_table[idx].task_struct->pid ) {
++        if(hmm_table[idx].task_struct->flags & PF_EXITING) {
++            hmm_table[idx].pid = pid;
++            hmm_table[idx].task_struct = current;
++            return idx;
++        } else if( hmm_table[idx].pid == pid) {
++            return idx;
++        } else {
++            return get_hmm_entry(idx + 1, count + 1);
++        }
++    } else {
++        hmm_table[idx].pid = pid;
++        hmm_table[idx].task_struct = current;
++        return idx;
++    }
++    
++}
++
++static NV_STATUS uvm_api_set_hmm(UVM_SET_HMM_PARAMS *params, struct file *filp)
++{
++    NV_STATUS status = NV_OK;
++    uint64_t base_addr = params->begin;
++    uint64_t fini_addr = params->end;
++    int idx = get_hmm_entry(current->pid, 0);
++
++    if(idx < 0) {
++        UVM_ERR_PRINT("Failed to get HMM entry for pid %d\n", current->pid);
++        return NV_ERR_INVALID_ARGUMENT;
++    }
++
++    hmm_table[idx].pid = current->pid; // Set the pid
++    hmm_table[idx].task_struct = current; // Set the task_struct
++    
++    for(int i = 0; i < 256; ++i) {
++        if(!hmm_table[idx].allow_list[i].is_valid) {
++            hmm_table[idx].allow_list[i].base = (void*)((size_t)base_addr);
++            hmm_table[idx].allow_list[i].end = (void*)(((size_t)fini_addr));
++            hmm_table[idx].allow_list[i].is_valid = true; 
++            break;
++        }
++        if(hmm_table[idx].allow_list[i].base >=  (void*)((size_t)base_addr)) {
++            if(hmm_table[idx].allow_list[i].end >= (void*)((size_t)fini_addr) &&
++                hmm_table[idx].allow_list[i].base <= (void*)((size_t)fini_addr)) {
++                hmm_table[idx].allow_list[i].base = (void*)((size_t)base_addr);
++                break;
++            } else if (hmm_table[idx].allow_list[i].end < (void*)((size_t)fini_addr)) {
++                hmm_table[idx].allow_list[i].base = (void*)((size_t)base_addr);
++                hmm_table[idx].allow_list[i].end = (void*)((size_t)fini_addr);
++                break;
++            } 
++        } else if(hmm_table[idx].allow_list[i].end >= (void*)((size_t)base_addr)) {
++            if(hmm_table[idx].allow_list[i].end <= (void*)((size_t)fini_addr)) {
++                hmm_table[idx].allow_list[i].end = (void*)((size_t)fini_addr);
++                break;
++            } else if(hmm_table[idx].allow_list[i].end > (void*)((size_t)fini_addr)) {
++                break;
++            }
++        }
++
++    }
++
++    //printk(KERN_INFO "HMM entry set for pid %d: base = 0x%llx, fini_addr = 0x%llx\n", current->pid, base_addr, fini_addr);
++
++    return status;
++}
++
++
++static NV_STATUS uvm_api_reset_hmm(UVM_RESET_HMM_PARAMS *params, struct file *filp)
++{
++    NV_STATUS status = NV_OK;
++    uint64_t base_addr = params->begin;
++    uint64_t fini_addr = params->end;
++    int idx = get_hmm_entry(current->pid, 0);
++    if(idx < 0) {
++        UVM_ERR_PRINT("Failed to get HMM entry for pid %d\n", current->pid);
++        return NV_ERR_INVALID_ARGUMENT;
++    }
++
++    bool match = false;
++    bool split = false;
++
++    void *split_base = NULL;
++    void *split_end = NULL;
++
++    for(int i = 0; i < 256; ++i) {
++        if(!hmm_table[idx].allow_list[i].is_valid) {
++            if(split) {
++                hmm_table[idx].allow_list[i].base = split_base;
++                hmm_table[idx].allow_list[i].end = split_end;
++                hmm_table[idx].allow_list[i].is_valid = true;
++            }
++            break;
++        }
++        if(match) {
++           hmm_table[idx].allow_list[i-1].is_valid = hmm_table[idx].allow_list[i].is_valid;
++           hmm_table[idx].allow_list[i-1].base = hmm_table[idx].allow_list[i].base;
++           hmm_table[idx].allow_list[i-1].end = hmm_table[idx].allow_list[i].end;
++           hmm_table[idx].allow_list[i].is_valid = false;
++           continue;
++        }
++        if(split) {
++            continue;
++        }
++
++        if(hmm_table[idx].allow_list[i].base <= (void*)((size_t)base_addr) &&
++           hmm_table[idx].allow_list[i].end >= (void*)((size_t)fini_addr)) {
++            // match
++            if(hmm_table[idx].allow_list[i].base == (void*)((size_t)base_addr) &&
++               hmm_table[idx].allow_list[i].end == (void*)((size_t)fini_addr)) {
++                match = true;
++                hmm_table[idx].allow_list[i].is_valid = false; // remove the entry
++            } else if (hmm_table[idx].allow_list[i].base < (void*)((size_t)base_addr) &&
++                       hmm_table[idx].allow_list[i].end == (void*)((size_t)fini_addr)) {
++                // cut
++                hmm_table[idx].allow_list[i].end = (void*)((size_t)base_addr);
++            } else if (hmm_table[idx].allow_list[i].base == (void*)((size_t)base_addr) &&
++                       hmm_table[idx].allow_list[i].end > (void*)((size_t)fini_addr)) {
++                // cut
++                hmm_table[idx].allow_list[i].base = (void*)((size_t)fini_addr);
++            } else {
++                // split
++                split = true;
++                split_base = (void*)fini_addr;
++                split_end  = hmm_table[idx].allow_list[i].end;
++                hmm_table[idx].allow_list[i].end = (void*)((size_t)base_addr);
++            }
++        }
++    }    
++
++    //printk(KERN_INFO "HMM entry reset for pid %d\n", current->pid);
++    return status;
++}
++
+ static void uvm_chardev_exit(void)
+ {
+     cdev_del(&g_uvm_cdev);
+@@ -1212,6 +1364,13 @@ static int uvm_init(void)
+     bool added_device = false;
+     int ret;
+ 
++	for(int i = 0; i < 64; ++i) {
++		hmm_table[i].pid = 0;	// int, pid_t
++		for(int j = 0; j < 256; ++j)
++            hmm_table[i].allow_list[j].is_valid = false; // int, pid_t
++		hmm_table[i].task_struct = NULL; // ptr	
++	}
++
+     NV_STATUS status = uvm_global_init();
+     if (status != NV_OK) {
+         UVM_ERR_PRINT("uvm_global_init() failed: %s\n", nvstatusToString(status));
+diff --git a/kernel-open/nvidia-uvm/uvm_common.c b/kernel-open/nvidia-uvm/uvm_common.c
+index 5f842004..b82d94bc 100644
+--- a/kernel-open/nvidia-uvm/uvm_common.c
++++ b/kernel-open/nvidia-uvm/uvm_common.c
+@@ -305,3 +305,5 @@ void uvm_uuid_string(char *buffer, const NvProcessorUuid *pUuidStruct)
+ 
+     *str = 0;
+ }
++
++struct hmm_table_entry_t hmm_table[64];
+\ No newline at end of file
+diff --git a/kernel-open/nvidia-uvm/uvm_common.h b/kernel-open/nvidia-uvm/uvm_common.h
+index 08f197aa..4482c206 100644
+--- a/kernel-open/nvidia-uvm/uvm_common.h
++++ b/kernel-open/nvidia-uvm/uvm_common.h
+@@ -435,4 +435,20 @@ static void uvm_cpu_get_unaddressable_range(NvU64 *first, NvU64 *outer)
+     return uvm_get_unaddressable_range(uvm_cpu_num_va_bits(), first, outer);
+ }
+ 
++struct uvm_allow_list_entry_t {
++    bool is_valid;
++    void *base;
++    void *end;
++};
++
++struct hmm_table_entry_t {
++    pid_t pid;
++    struct uvm_allow_list_entry_t allow_list[256];
++    struct task_struct *task_struct;
++};
++
++int get_hmm_entry(pid_t pid, int count);
++
++extern struct hmm_table_entry_t hmm_table[64];
++
+ #endif /* __UVM_COMMON_H__ */
+diff --git a/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c b/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c
+index 22fd9996..6f323991 100644
+--- a/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c
++++ b/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c
+@@ -40,6 +40,9 @@
+ #include "uvm_ats_faults.h"
+ #include "uvm_test.h"
+ 
++
++bool uvm_region_hmm_allowed(struct mm_struct *mm, NvU64 fault_address);
++
+ // The documentation at the beginning of uvm_gpu_non_replayable_faults.c
+ // provides some background for understanding replayable faults, non-replayable
+ // faults, and how UVM services each fault type.
+@@ -1943,13 +1946,39 @@ static NV_STATUS service_fault_batch_ats(uvm_gpu_va_space_t *gpu_va_space,
+     return status;
+ }
+ 
++
++bool uvm_region_hmm_allowed(struct mm_struct *mm, NvU64 fault_address)
++{
++    // Check if HMM is enabled for the process
++
++    int hmm_idx = get_hmm_entry(mm->owner->pid, 0);
++    if (hmm_idx < 0)
++        return false; 
++
++    struct hmm_table_entry_t *hmm_entry = &hmm_table[hmm_idx];
++    struct uvm_allow_list_entry_t *allow_list_entry = hmm_entry->allow_list;
++    
++    for(int i = 0; i < 256; ++i) {
++        if (!allow_list_entry[i].is_valid) {
++            return false;
++        }
++        if (((NvU64)allow_list_entry[i].base <= fault_address &&
++            fault_address < (NvU64)allow_list_entry[i].end)) {
++            return true;
++        }
++    }
++
++    return false;
++}
++
++
+ static NV_STATUS service_fault_batch_dispatch(uvm_va_space_t *va_space,
+                                               uvm_gpu_va_space_t *gpu_va_space,
+                                               uvm_fault_service_batch_context_t *batch_context,
+                                               NvU32 fault_index,
+                                               NvU32 *block_faults,
+                                               bool replay_per_va_block,
+-                                              const bool hmm_migratable)
++                                              bool hmm_migratable)
+ {
+     NV_STATUS status;
+     uvm_va_range_t *va_range = NULL;
+@@ -1964,6 +1993,13 @@ static NV_STATUS service_fault_batch_dispatch(uvm_va_space_t *va_space,
+ 
+     (*block_faults) = 0;
+ 
++    hmm_migratable = hmm_migratable && 
++                     uvm_region_hmm_allowed(mm, fault_address);
++
++    //printk(KERN_DEBUG "Service fault for VA 0x%llx, HMM migratable %d\n",
++    //       fault_address, hmm_migratable);
++
++
+     va_range_next = uvm_va_space_iter_first(va_space, fault_address, ~0ULL);
+     if (va_range_next && (fault_address >= va_range_next->node.start)) {
+         UVM_ASSERT(fault_address < va_range_next->node.end);
+@@ -1974,7 +2010,7 @@ static NV_STATUS service_fault_batch_dispatch(uvm_va_space_t *va_space,
+ 
+     if (va_range)
+         status = uvm_va_block_find_create_in_range(va_space, va_range, fault_address, &va_block);
+-    else if (mm)
++    else if (mm && hmm_migratable)
+         status = uvm_hmm_va_block_find_create(va_space, fault_address, &va_block_context->hmm.vma, &va_block);
+     else
+         status = NV_ERR_INVALID_ADDRESS;
+@@ -2158,7 +2194,7 @@ static NV_STATUS service_fault_batch_for_cancel(uvm_fault_service_batch_context_
+         else {
+             uvm_ats_fault_invalidate_t *ats_invalidate = &gpu->parent->fault_buffer.replayable.ats_invalidate;
+             NvU32 block_faults;
+-            const bool hmm_migratable = true;
++            bool hmm_migratable = true;
+ 
+             ats_invalidate->tlb_batch_pending = false;
+ 
+@@ -2948,8 +2984,15 @@ void uvm_parent_gpu_service_replayable_faults(uvm_parent_gpu_t *parent_gpu)
+         else if (status != NV_OK)
+             break;
+ 
++        ktime_t start = ktime_get();
++
+         status = service_fault_batch(parent_gpu, FAULT_SERVICE_MODE_REGULAR, batch_context);
+ 
++        ktime_t end = ktime_get();
++
++        s64 delta_ns = ktime_to_ns(ktime_sub(end, start));
++        pr_info("page fault handling took for mitigation %lld ns\n", delta_ns);
++        
+         // We may have issued replays even if status != NV_OK if
+         // UVM_PERF_FAULT_REPLAY_POLICY_BLOCK is being used or the fault buffer
+         // was flushed
+diff --git a/kernel-open/nvidia-uvm/uvm_ioctl.h b/kernel-open/nvidia-uvm/uvm_ioctl.h
+index 8f02b38a..23a5ba35 100644
+--- a/kernel-open/nvidia-uvm/uvm_ioctl.h
++++ b/kernel-open/nvidia-uvm/uvm_ioctl.h
+@@ -1142,6 +1142,24 @@ typedef struct
+     NV_STATUS rmStatus;     // OUT
+ } UVM_IS_8_SUPPORTED_PARAMS;
+ 
++#define UVM_SET_HMM                                                   UVM_IOCTL_BASE(2050)
++
++typedef struct
++{
++    NvU64           begin      NV_ALIGN_BYTES(8); // IN
++    NvU64           end       NV_ALIGN_BYTES(8); // IN
++    NV_STATUS  rmStatus; // OUT
++} UVM_SET_HMM_PARAMS;
++
++#define UVM_RESET_HMM                                                 UVM_IOCTL_BASE(2051)
++
++typedef struct
++{
++    NvU64           begin      NV_ALIGN_BYTES(8); // IN
++    NvU64           end       NV_ALIGN_BYTES(8);
++    NV_STATUS  rmStatus; // OUT
++} UVM_RESET_HMM_PARAMS;
++
+ 
+ #ifdef __cplusplus
+ }

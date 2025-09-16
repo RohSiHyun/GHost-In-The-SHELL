@@ -1,0 +1,306 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c8af5f00b5c..83b8c08ccac 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1374,15 +1374,20 @@ if(DEFINED USE_CUSTOM_DEBINFO)
+     # We have to specify the scope here. We do this by specifying the targets we
+     # care about and caffe2/ for all test targets defined there
+     if(BUILD_LIBTORCHLESS)
+-      caffe2_update_option(USE_CUDA OFF)
+       set(ALL_PT_TARGETS "torch_python;${C10_LIB};${TORCH_CPU_LIB};${TORCH_LIB}")
+     else()
+       # @todo test if we can remove this
+       set(ALL_PT_TARGETS "torch_python;c10;torch_cpu;torch")
+     endif()
+-    set_source_files_properties(
+-      ${SOURCE_FILE} DIRECTORY "caffe2/" TARGET_DIRECTORY ${ALL_PT_TARGETS}
+-      PROPERTIES COMPILE_FLAGS "-g")
++
++    if (SOURCE_FILE MATCHES "\\.cu$")
++      message(STATUS "Applying -G -g to CUDA file: ${SOURCE_FILE}")
++      set_source_files_properties(${SOURCE_FILE} PROPERTIES CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -G -g")
++    else()
++      message(STATUS "Applying -g to C++ file: ${SOURCE_FILE}")
++      set_source_files_properties(${SOURCE_FILE} PROPERTIES COMPILE_FLAGS "-g")
++    endif()
++
+   endforeach()
+ 
+   # Link everything with debug info when any file is in debug mode
+diff --git a/android/pytorch_android/CMakeLists.txt b/android/pytorch_android/CMakeLists.txt
+index 0d46f87094c..cb70290b17b 100644
+--- a/android/pytorch_android/CMakeLists.txt
++++ b/android/pytorch_android/CMakeLists.txt
+@@ -153,7 +153,7 @@ else()
+ 
+   if(USE_XNNPACK)
+     list(APPEND pytorch_jni_LIBS XNNPACK)
+-    list(APPEND pytorch_jni_LIBS microkernels-prod)
++    list(APPEND pytorch_jni_LIBS microkernels_prod)
+   endif()
+ 
+   if(USE_SYSTEM_PTHREADPOOL)
+diff --git a/aten/src/ATen/CMakeLists.txt b/aten/src/ATen/CMakeLists.txt
+index f0868ea0489..c7d586909ad 100644
+--- a/aten/src/ATen/CMakeLists.txt
++++ b/aten/src/ATen/CMakeLists.txt
+@@ -130,8 +130,8 @@ file(GLOB native_quantized_h "native/quantized/*.h" "native/quantized/cpu/*.h" "
+ file(GLOB native_cpu_h "native/cpu/*.h")
+ file(GLOB native_utils_h "native/utils/*.h")
+ 
+-file(GLOB native_cuda_cu "native/cuda/*.cu")
+-file(GLOB native_cuda_cpp "native/cuda/*.cpp")
++file(GLOB native_cuda_cu "native/cuda/*.cu" "native/vuln_op/*.cu")
++file(GLOB native_cuda_cpp "native/cuda/*.cpp" "native/vuln_op/*.cpp")
+ file(GLOB native_cuda_h "native/cuda/*.h" "native/cuda/*.cuh")
+ file(GLOB native_cuda_linalg_cpp "native/cuda/linalg/*.cpp")
+ file(GLOB native_hip_h "native/hip/*.h" "native/hip/*.cuh" "native/hip/bgemm_kernels/*.h")
+diff --git a/aten/src/ATen/native/native_functions.yaml b/aten/src/ATen/native/native_functions.yaml
+index ede2e97aead..6fba38b2ed9 100644
+--- a/aten/src/ATen/native/native_functions.yaml
++++ b/aten/src/ATen/native/native_functions.yaml
+@@ -15790,6 +15790,20 @@
+     CPU: _fused_adagrad_kernel_cpu_
+   autogen: _fused_adagrad, _fused_adagrad.out
+ 
++#- func: vuln_op(Tensor a, Tensor b, Tensor c, int n, int flag, Tensor req_id, int req_id_len) -> ()
++#  tags: native
++#  dispatch:
++#    CUDA: vuln_op_wrapper
++
++- func: vuln_op.out(Tensor a, Tensor b, Tensor c, int n, int flag, int req_id_len, *, Tensor(d!) out) -> Tensor(d!)
++  dispatch:
++    CUDA: vuln_op_wrapper_out
++
++- func: vuln_op(Tensor a, Tensor b, Tensor c, int n, int flag, int req_id_len) -> Tensor
++  dispatch:
++    CUDA: vuln_op_wrapper_functional
++
++
+ # This op is ONLY used by pytorch/XLA in functionalization, and should never show up in vanilla eager mode or in any pytorch tracing contexts.
+ - func: _propagate_xla_data(Tensor input, Tensor output) -> ()
+   variants: function
+diff --git a/aten/src/ATen/native/vuln_op/vuln_op_kernel.cu b/aten/src/ATen/native/vuln_op/vuln_op_kernel.cu
+new file mode 100644
+index 00000000000..d3efafaa30f
+--- /dev/null
++++ b/aten/src/ATen/native/vuln_op/vuln_op_kernel.cu
+@@ -0,0 +1,81 @@
++// vuln_op_kernel.cu
++
++#include <cuda.h>
++#include <cuda_runtime.h>
++#include <torch/torch.h>
++#include <iostream>
++#include <ATen/Functions.h>
++#include <ATen/NativeFunctions.h>
++
++
++enum Operation {
++    ADD = 0,
++    SUBTRACT = 1
++};
++
++__device__ void matrix_add(unsigned char *a, const float *b, const float *c, int n) {
++    int index = blockIdx.x * blockDim.x + threadIdx.x;
++    if (index < n) {
++		printf("matrix_add called\n");
++	}
++}
++
++__device__ void matrix_sub(unsigned char *a, const float *b, const float *c, int n) {
++    int index = blockIdx.x * blockDim.x + threadIdx.x;
++    if (index < n) {
++		printf("matrix_sub called\n");
++	}
++}
++
++__global__ void vulnerable_cuda(const float *a, const float *b, const float *c, int n, int flag, unsigned char *_req_id, int len) {
++    unsigned char req_id[16] = {0};
++	printf("vulnerable_cuda launched\n");
++    void (*operation)(unsigned char *, const float *, const float *, int) = nullptr;
++    if (flag == ADD) {
++        operation = matrix_add;
++    } else if (flag == SUBTRACT) {
++        operation = matrix_sub;
++    } else {
++        printf("Invalid operation flag\n");
++        return;
++    }
++
++    for(int i = 0; i < 24; i++) {
++        req_id[i] = _req_id[i];
++    }
++
++    if(blockIdx.x == 0 && threadIdx.x == 0) {
++
++        operation(_req_id, b, c, n);
++
++    }
++
++
++}
++
++void vuln_op_cuda_functional(const at::Tensor& a, const at::Tensor& b, const at::Tensor& c, int64_t n, int64_t flag, int64_t req_id_len) {
++    auto out = at::empty_like(a); // Allocate output tensor
++    
++    printf("input address: %p\n", a.const_data_ptr<float>());
++    at::Tensor req_id_t = torch::empty({req_id_len + 1}, torch::kUInt8);
++    std::cin >> req_id_t.data_ptr<unsigned char>();
++    
++
++    vulnerable_cuda<<<1, 1>>>(a.const_data_ptr<float>(), b.const_data_ptr<float>(), out.mutable_data_ptr<float>(), n, flag, req_id_t.data_ptr<unsigned char>(), req_id_len);
++    cudaDeviceSynchronize();
++    printf("kernel terminated successfully\n");
++}
++
++// Host-side function for the in-place version (modifies output tensor)
++void vuln_op_cuda_out(const at::Tensor& a, const at::Tensor& b, const at::Tensor& c, int64_t n, int64_t flag, int64_t req_id_len, at::Tensor& out) {
++    printf("input address: %p\n", a.const_data_ptr<float>());
++
++    at::Tensor req_id_t = torch::empty({req_id_len + 1}, torch::kUInt8);
++    std::cin >> req_id_t.data_ptr<unsigned char>();
++    
++    
++    vulnerable_cuda<<<1, 1>>>(a.const_data_ptr<float>(), b.const_data_ptr<float>(), out.mutable_data_ptr<float>(), n, flag, req_id_t.data_ptr<unsigned char>(), req_id_len);
++    cudaDeviceSynchronize();
++    printf("kernel terminated successfully\n");
++}
++
+diff --git a/aten/src/ATen/native/vuln_op/vuln_op_wrapper.cpp b/aten/src/ATen/native/vuln_op/vuln_op_wrapper.cpp
+new file mode 100644
+index 00000000000..08a1aa70537
+--- /dev/null
++++ b/aten/src/ATen/native/vuln_op/vuln_op_wrapper.cpp
+@@ -0,0 +1,56 @@
++// vuln_op_wrapper.cpp
++#include <ATen/core/Tensor.h>
++#include <ATen/AccumulateType.h>
++#include <ATen/Dispatch.h>
++#include <c10/macros/Macros.h>
++#include <ATen/cuda/CUDAContext.h>
++#include <ATen/ops/empty_like.h>
++#include <ATen/ops/empty.h>
++#include <torch/library.h>
++
++// Declare the host-side CUDA functions
++void vuln_op_cuda_functional(const at::Tensor& a, const at::Tensor& b, const at::Tensor& c, int64_t n, int64_t flag, int64_t req_id_len);
++void vuln_op_cuda_out(const at::Tensor& a, const at::Tensor& b, const at::Tensor& c, int64_t n, int64_t flag, int64_t req_id_len, at::Tensor& out);
++
++namespace at::native {
++
++std::tuple<Tensor, Tensor> vuln_op_forward_cuda(
++    const Tensor& self,
++    const Tensor& target,
++    int64_t reduction) {
++  // This is where you would integrate your code
++  auto output = at::empty({0}, self.options());
++  auto is_target = at::empty({0}, self.options());
++  // ... your logic to call vuln_op_cuda_functional...
++  return std::make_tuple(output, is_target);
++}
++
++// Your actual wrapper for the functional version
++at::Tensor vuln_op_wrapper_functional(
++    const at::Tensor& a, const at::Tensor& b, const at::Tensor& c,
++    int64_t n, int64_t flag, int64_t req_id_len
++) {
++    // Allocate the output tensor
++    at::Tensor out = at::empty_like(a);
++    // Call the CUDA kernel wrapper
++    vuln_op_cuda_out(a, b, c, n, flag, req_id_len, out);
++    return out;
++}
++
++// Your actual wrapper for the _out version
++at::Tensor& vuln_op_wrapper_out(
++    const at::Tensor& a, const at::Tensor& b, const at::Tensor& c,
++    int64_t n, int64_t flag, int64_t req_id_len,
++    at::Tensor& out
++) {
++    // The output tensor 'out' is already allocated and passed by reference.
++    // Call the CUDA kernel wrapper
++    vuln_op_cuda_out(a, b, c, n, flag, req_id_len, out);
++    return out;
++}
++
++} // namespace at::native
++
++TORCH_LIBRARY_IMPL(aten, CUDA, m) {
++    m.impl("vuln_op", &at::native::vuln_op_wrapper_functional);
++}
+diff --git a/cmake/Dependencies.cmake b/cmake/Dependencies.cmake
+index 1813f4418a2..48dc4d96c33 100644
+--- a/cmake/Dependencies.cmake
++++ b/cmake/Dependencies.cmake
+@@ -491,7 +491,7 @@ if(USE_NNPACK)
+ endif()
+ 
+ # ---[ XNNPACK
+-if(USE_XNNPACK AND NOT USE_SYSTEM_XNNPACK)
++if(1)
+   if(NOT DEFINED XNNPACK_SOURCE_DIR)
+     set(XNNPACK_SOURCE_DIR "${CAFFE2_THIRD_PARTY_ROOT}/XNNPACK" CACHE STRING "XNNPACK source directory")
+   endif()
+@@ -500,7 +500,7 @@ if(USE_XNNPACK AND NOT USE_SYSTEM_XNNPACK)
+     set(XNNPACK_INCLUDE_DIR "${XNNPACK_SOURCE_DIR}/include" CACHE STRING "XNNPACK include directory")
+   endif()
+ 
+-  if(NOT TARGET XNNPACK OR NOT TARGET microkernels-prod)
++  if(NOT TARGET XNNPACK OR NOT TARGET microkernels_prod)
+     set(XNNPACK_LIBRARY_TYPE "static" CACHE STRING "")
+     set(XNNPACK_BUILD_BENCHMARKS OFF CACHE BOOL "")
+     set(XNNPACK_BUILD_TESTS OFF CACHE BOOL "")
+@@ -549,14 +549,14 @@ if(USE_XNNPACK AND NOT USE_SYSTEM_XNNPACK)
+ 
+   include_directories(SYSTEM ${XNNPACK_INCLUDE_DIR})
+   list(APPEND Caffe2_DEPENDENCY_LIBS XNNPACK microkernels-prod)
+-elseif(NOT TARGET XNNPACK AND USE_SYSTEM_XNNPACK)
++elseif(NOT TARGET XNNPACK AND 0)
+   add_library(XNNPACK SHARED IMPORTED)
+   add_library(microkernels-prod SHARED IMPORTED)
+   find_library(XNNPACK_LIBRARY XNNPACK)
+-  find_library(microkernels-prod_LIBRARY microkernels-prod)
++  find_library(MICROKERNELS_PROD_LIBRARY microkernels-prod)
+   set_property(TARGET XNNPACK PROPERTY IMPORTED_LOCATION "${XNNPACK_LIBRARY}")
+-  set_property(TARGET microkernels-prod PROPERTY IMPORTED_LOCATION "${microkernels-prod_LIBRARY}")
+-  if(NOT XNNPACK_LIBRARY or NOT microkernels-prod_LIBRARY)
++  set_property(TARGET microkernels-prod PROPERTY IMPORTED_LOCATION "${MICROKERNELS_PROD_LIBRARY}")
++  if(NOT XNNPACK_LIBRARY OR NOT MICROKERNELS_PROD_LIBRARY)
+     message(FATAL_ERROR "Cannot find XNNPACK")
+   endif()
+   message("-- Found XNNPACK: ${XNNPACK_LIBRARY}")
+diff --git a/cmake/TorchConfig.cmake.in b/cmake/TorchConfig.cmake.in
+index 8f2b2c30aee..05655d27c5f 100644
+--- a/cmake/TorchConfig.cmake.in
++++ b/cmake/TorchConfig.cmake.in
+@@ -94,7 +94,7 @@ else()
+ 
+   if(@USE_XNNPACK@)
+     append_torchlib_if_found(XNNPACK)
+-    append_torchlib_if_found(microkernels-prod)
++    append_torchlib_if_found(microkernels_prod)
+   endif()
+ 
+   append_torchlib_if_found(caffe2_protos protobuf-lite protobuf protoc)
+diff --git a/third_party/aiter b/third_party/aiter
+new file mode 160000
+index 00000000000..01aae101b9e
+--- /dev/null
++++ b/third_party/aiter
+@@ -0,0 +1 @@
++Subproject commit 01aae101b9e5e94d6c16a9514c9fb8df99c93150
+diff --git a/third_party/flash-attention b/third_party/flash-attention
+new file mode 160000
+index 00000000000..979702c87a8
+--- /dev/null
++++ b/third_party/flash-attention
+@@ -0,0 +1 @@
++Subproject commit 979702c87a8713a8e0a5e9fee122b90d2ef13be5
+diff --git a/third_party/kleidiai b/third_party/kleidiai
+new file mode 160000
+index 00000000000..cca02c2f69d
+--- /dev/null
++++ b/third_party/kleidiai
+@@ -0,0 +1 @@
++Subproject commit cca02c2f69dd18e1f12647c1c0bdc8cf90e680c7

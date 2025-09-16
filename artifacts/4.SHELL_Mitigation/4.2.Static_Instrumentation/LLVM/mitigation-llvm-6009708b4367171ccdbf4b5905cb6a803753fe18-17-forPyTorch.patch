@@ -1,0 +1,710 @@
+diff --git a/clang/include/clang/CodeGen/PtrInstrumentPass.h b/clang/include/clang/CodeGen/PtrInstrumentPass.h
+new file mode 100644
+index 000000000000..203069b2ad78
+--- /dev/null
++++ b/clang/include/clang/CodeGen/PtrInstrumentPass.h
+@@ -0,0 +1,19 @@
++//===- PtrInstrumentPass.h --------------------------------------*- C++ -*-===//
++//
++//                     The LLVM Compiler Infrastructure
++//
++// This file declares the PtrInstrumentPass.
++//
++//===----------------------------------------------------------------------===//
++#ifndef LLVM_CLANG_CODEGEN_PTRINSTRUMENTPASS_H
++#define LLVM_CLANG_CODEGEN_PTRINSTRUMENTPASS_H
++
++#include "llvm/IR/PassManager.h"
++
++namespace llvm {
++struct PtrInstrumentPass : public PassInfoMixin<PtrInstrumentPass> {
++  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
++};
++} // end namespace llvm
++
++#endif // LLVM_CLANG_CODEGEN_PTRINSTRUMENTPASS_H
+diff --git a/clang/lib/CMakeLists.txt b/clang/lib/CMakeLists.txt
+index 1526d65795f8..b00b424c25a4 100644
+--- a/clang/lib/CMakeLists.txt
++++ b/clang/lib/CMakeLists.txt
+@@ -30,3 +30,5 @@ if(CLANG_INCLUDE_TESTS)
+ endif()
+ add_subdirectory(Interpreter)
+ add_subdirectory(Support)
++add_subdirectory(Custom)
++
+diff --git a/clang/lib/CodeGen/BackendUtil.cpp b/clang/lib/CodeGen/BackendUtil.cpp
+index 483f3e787a78..68a4dd75f889 100644
+--- a/clang/lib/CodeGen/BackendUtil.cpp
++++ b/clang/lib/CodeGen/BackendUtil.cpp
+@@ -5,7 +5,7 @@
+ // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+ //
+ //===----------------------------------------------------------------------===//
+-
++#include "clang/CodeGen/PtrInstrumentPass.h"
+ #include "clang/CodeGen/BackendUtil.h"
+ #include "clang/Basic/CodeGenOptions.h"
+ #include "clang/Basic/Diagnostic.h"
+@@ -919,7 +919,7 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
+   PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+ 
+   ModulePassManager MPM;
+-
++  OptimizationLevel MyLevel = mapToLevel(CodeGenOpts);
+   if (!CodeGenOpts.DisableLLVMPasses) {
+     // Map our optimization levels into one of the distinct levels used to
+     // configure the pipeline.
+@@ -1071,12 +1071,16 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
+                                     EmitLTOSummary));
+     }
+   }
+-
++  ModulePassManager MyMPM;
++  if (MyLevel == OptimizationLevel::O0) {
++    MyMPM.addPass(llvm::PtrInstrumentPass());
++  }
+   // Now that we have all of the passes ready, run them.
+   {
+     PrettyStackTraceString CrashInfo("Optimizer");
+     llvm::TimeTraceScope TimeScope("Optimizer");
+     MPM.run(*TheModule, MAM);
++	MyMPM.run(*TheModule, MAM);
+   }
+ }
+ 
+diff --git a/clang/lib/CodeGen/CMakeLists.txt b/clang/lib/CodeGen/CMakeLists.txt
+index 1debeb6d9cce..5d0c019362d6 100644
+--- a/clang/lib/CodeGen/CMakeLists.txt
++++ b/clang/lib/CodeGen/CMakeLists.txt
+@@ -31,6 +31,7 @@ set(LLVM_LINK_COMPONENTS
+   )
+ 
+ add_clang_library(clangCodeGen
++  InstrumentPass.cpp
+   ABIInfo.cpp
+   ABIInfoImpl.cpp
+   BackendUtil.cpp
+@@ -127,4 +128,7 @@ add_clang_library(clangCodeGen
+   clangFrontend
+   clangLex
+   clangSerialization
++  LLVMPasses
++  LLVMCore
++  LLVMSupport
+   )
+diff --git a/clang/lib/CodeGen/InstrumentPass.cpp b/clang/lib/CodeGen/InstrumentPass.cpp
+new file mode 100644
+index 000000000000..e2738cb74af7
+--- /dev/null
++++ b/clang/lib/CodeGen/InstrumentPass.cpp
+@@ -0,0 +1,305 @@
++#include "clang/CodeGen/PtrInstrumentPass.h"
++#include "llvm/IR/PassManager.h"
++#include "llvm/IR/Function.h"
++#include "llvm/IR/Module.h"
++#include "llvm/IR/Instructions.h"
++#include "llvm/IR/InstIterator.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Passes/PassPlugin.h"
++#include "llvm/Passes/PassBuilder.h" 
++#include "llvm/Demangle/Demangle.h"
++#include "llvm/Demangle/ItaniumDemangle.h"
++#include <unordered_set>
++
++using namespace llvm;
++
++
++    void instrumentAlloca(AllocaInst *AI) {
++      Function *F = AI->getFunction();
++      LLVMContext &C = AI->getContext();
++      IRBuilder<> Builder(AI);
++
++      Type *ETy = AI->getAllocatedType();
++      DataLayout DL(AI->getModule());
++      uint64_t ElemSize = DL.getTypeAllocSize(ETy);
++      Value *ElemSizeVal = ConstantInt::get(Builder.getInt64Ty(), ElemSize);
++      Value *TotalSize = ElemSizeVal; 
++      
++      if( AI->isArrayAllocation()) {
++        TotalSize = Builder.CreateMul(AI->getArraySize(), ElemSizeVal, "total_size");
++      }
++      
++      Module *M = AI->getModule();
++      FunctionCallee InstMallocFunc = M->getOrInsertFunction(
++          "instru_malloc",
++          FunctionType::get(Type::getInt8Ty(C)->getPointerTo(0), {Builder.getInt64Ty()}, false));
++      
++      Value *MallocCall = Builder.CreateCall(InstMallocFunc, TotalSize, "malloc_instrumented");
++      Value *TypedMalloc = Builder.CreateBitCast(MallocCall, AI->getType(), "casted_alloca");
++
++      AI->replaceAllUsesWith(TypedMalloc);
++      
++      FunctionCallee InstFreeFunc = M->getOrInsertFunction(
++          "instru_free",
++          FunctionType::get(Type::getVoidTy(C), {Type::getInt8Ty(C)->getPointerTo(0)}, false));
++      
++      for (auto &BB : *F) {
++        if (isa<ReturnInst>(BB.getTerminator())) {
++          IRBuilder<> RetBuilder(BB.getTerminator());
++          Value *ToFree = RetBuilder.CreateBitCast(TypedMalloc, Type::getInt8Ty(C)->getPointerTo(0), "casted_free");
++          RetBuilder.CreateCall(InstFreeFunc, {ToFree});
++          return;
++        }
++      }
++    }
++
++    void instrumentMalloc(CallBase *CB) {
++      Module *M = CB->getModule();
++      LLVMContext &C = M->getContext();
++      IRBuilder<> Builder(CB);
++      FunctionCallee InstMallocFunc = M->getOrInsertFunction(
++          "instru_malloc",
++          FunctionType::get(Type::getInt8Ty(C)->getPointerTo(0), {Builder.getInt64Ty()}, false));
++ 
++      Value *Arg = CB->getArgOperand(0);
++      CallInst *NewCall = Builder.CreateCall(InstMallocFunc, Arg, "malloc_instrumented");
++      CB->replaceAllUsesWith(NewCall);
++      CB->eraseFromParent();
++
++    }
++
++    void instrumentMmap(CallBase *CB) {
++      Module *M = CB->getModule();
++      LLVMContext &C = M->getContext();
++      IRBuilder<> Builder(CB);
++
++      FunctionCallee InstMmapFunc = M->getOrInsertFunction(
++          "mmap",
++          FunctionType::get(Type::getInt8Ty(M->getContext())->getPointerTo(0), {Type::getInt8Ty(M->getContext())->getPointerTo(0), 
++            Type::getInt64Ty(M->getContext()), Type::getInt32Ty(M->getContext()), Type::getInt64Ty(M->getContext()),
++            Type::getInt32Ty(M->getContext()), Type::getInt64Ty(M->getContext())}, false));
++
++      SmallVector<Value *, 6> NewArgs;
++      for (unsigned i = 0; i < 6; ++i)
++        NewArgs.push_back(CB->getArgOperand(i));
++
++      Value *FlagMask = ConstantInt::get(Type::getInt64Ty(C), 0x1000000000000000ULL);
++      Value *ModifiedFlags = Builder.CreateOr(NewArgs[3], FlagMask, "flags_or");
++
++      NewArgs[3] = ModifiedFlags;
++      CallInst *NewCall = Builder.CreateCall(InstMmapFunc, NewArgs, "mmap_instrumented");
++      CB->replaceAllUsesWith(NewCall);
++      CB->eraseFromParent();
++    }
++
++    Value* findPointerOrigin(Value *V, std::unordered_set<Value*> &Visited, Module& M) {
++        if (!V || Visited.count(V)) return nullptr;
++        Visited.insert(V);
++
++        auto &Ctx = M.getContext();
++        auto &DL = M.getDataLayout();
++        
++        errs() << "Visiting: " << *V << "\n";
++        if (auto *AI = dyn_cast<AllocaInst>(V)) {
++            if (AI->getAllocatedType()->isPointerTy()) {
++                for (User *U : AI->users()) {
++                    if (auto *SI = dyn_cast<StoreInst>(U)) {
++                        Value *stored = SI->getValueOperand();
++                        return findPointerOrigin(stored, Visited, M);
++                    }
++                }
++                errs() << "Found pointer alloca: " << *AI << "\n"; 
++                return nullptr;
++            }
++            instrumentAlloca(AI);
++            return V;
++        }
++
++        if (auto *GV = dyn_cast<GlobalVariable>(V)) {
++            GV->setSection("hmm_section");
++            GV->setAlignment(Align(65536));
++
++            uint64_t Size = DL.getTypeAllocSize(GV->getValueType());
++            uint64_t PaddedSize = (65536 - (Size %65536)) % 65536;
++            ArrayType *PadTy =  ArrayType::get(Type::getInt8Ty(Ctx), PaddedSize);
++            Constant *Z = ConstantAggregateZero::get(PadTy);
++
++            auto *PadGV = new GlobalVariable(
++              M, PadTy, false, GV->getLinkage(), Z, GV->getName() + ".pad");
++            PadGV->setSection(GV->getSection());
++            
++            errs() << "Found global variable: " << *GV << "\n";
++            return V;
++        }
++        if (auto *CB = dyn_cast<CallBase>(V)) {
++            Value *CalledVal = CB->getCalledOperand();
++
++            errs() << "Found call: " << *CB << "\n";
++            if (Function *F = dyn_cast<Function>(CalledVal)) {
++                StringRef Name = F->getName();
++                if (Name == "malloc") {
++                    instrumentMalloc(CB);
++                    return V;
++                } else if (Name == "mmap") {
++                    instrumentMmap(CB);
++                    return V;
++                }
++            } else if (CalledVal) {
++                if (auto *CE = dyn_cast<ConstantExpr>(CalledVal)) {
++                    if (CE->isCast()) {
++                        if (Function *F = dyn_cast<Function>(CE->getOperand(0))) {
++                            StringRef Name = F->getName();
++                            if (Name == "malloc") {
++                                instrumentMalloc(CB);
++                                return V;
++                            } else if (Name == "mmap") {
++                               instrumentMmap(CB);
++                               return V;
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++        if (auto *BC = dyn_cast<BitCastInst>(V))
++            return findPointerOrigin(BC->getOperand(0), Visited, M);
++
++        if (auto *GEP = dyn_cast<GetElementPtrInst>(V))
++            return findPointerOrigin(GEP->getPointerOperand(), Visited, M);
++
++        if (auto *LI = dyn_cast<LoadInst>(V))
++            return findPointerOrigin(LI->getPointerOperand(), Visited, M);
++
++        if (auto *Arg = dyn_cast<Argument>(V)) {
++            Function *Parent = Arg->getParent();
++            for (User *U : Parent->users()) {
++                if (auto *Call = dyn_cast<CallBase>(U)) {
++                    if (Arg->getArgNo() < Call->arg_size()) {
++                        Value *PassedVal = Call->getArgOperand(Arg->getArgNo());
++                        return findPointerOrigin(PassedVal, Visited, M);
++                    }
++                }
++            }
++        }
++
++        return nullptr;
++    }
++
++    PreservedAnalyses PtrInstrumentPass::run(Module &M, ModuleAnalysisManager &) {
++
++        LLVMContext &Ctx = M.getContext();
++
++        if(!M.getFunction("instru_malloc")) {
++            FunctionType *MallocType = FunctionType::get(
++                Type::getInt8Ty(Ctx)->getPointerTo(0),
++                {Type::getInt64Ty(Ctx)},
++                false
++            );
++            FunctionType *FreeType = FunctionType::get(
++                Type::getVoidTy(Ctx),
++                {Type::getInt8Ty(Ctx)->getPointerTo(0)},
++                false
++            );
++            Function::Create(MallocType, Function::ExternalLinkage, "instru_malloc", M);
++            Function::Create(FreeType, Function::ExternalLinkage, "instru_free", M);
++        }
++
++        FunctionCallee instruFree = M.getOrInsertFunction(
++            "instru_free",
++            FunctionType::get(Type::getVoidTy(Ctx), {Type::getInt8Ty(Ctx)->getPointerTo(0)}, false)
++        );
++       
++        for (Function &F : M) {
++            for (BasicBlock &BB : F) {
++                for (auto It = BB.begin(); It != BB.end(); ) {
++                    Instruction *I = &*It++;
++                    if (auto *CB = dyn_cast<CallBase>(I)) {
++                        Value *Callee = CB->getCalledOperand()->stripPointerCasts();
++                        Function *F = dyn_cast<Function>(Callee);
++                        if (!F || F->getName() != "free") continue;
++
++                        if (CB->arg_size() != 1) continue; // sanity check
++
++                        IRBuilder<> Builder(CB);
++                        Value *Arg = CB->getArgOperand(0);
++                        Builder.CreateCall(instruFree, {Arg});
++
++                        CB->eraseFromParent();  // Remove the original call
++                    }
++                }
++            }
++        }
++
++        SmallVector<StringRef, 2048> MangledNames;
++        SmallVector<CallBase*, 2048> Calls;
++        for (Function &F : M) {
++            for(BasicBlock &BB : F) {
++                for (Instruction &I : BB) {
++                    if(auto *CB = dyn_cast<CallBase>(&I)) {
++                        if(Function *Callee = CB->getCalledFunction()) {
++                            if(Callee->getName().contains("__device_stub")) {
++                                StringRef Mangled = Callee->getName();
++                                if (Mangled.consume_front("_Z")) {
++                                    while (!Mangled.empty() && isdigit(Mangled.front()))
++                                        Mangled = Mangled.drop_front();
++                                }
++                                Mangled.consume_front("__device_stub_");
++                                Mangled.consume_back("Pi");
++                                MangledNames.push_back(Mangled);
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++        for(StringRef &Mangled : MangledNames) {
++            for (Function &SubF : M) {
++                for (BasicBlock &SubBB : SubF) {
++                    for (Instruction &SubI : SubBB) {
++                        if (auto *Call = dyn_cast<CallBase>(&SubI)) {
++                            if (Function *Callee = Call->getCalledFunction()) {
++                                if (Callee->getName() == Mangled) {
++                                    Calls.push_back(Call);
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++
++        for (CallBase *CB : Calls) {
++            errs() << "Processing call: " << *CB << "\n";
++            for(unsigned int i = 0; i < CB->arg_size(); ++i) {
++                Value *Arg = CB->getArgOperand(i);
++                if (!Arg->getType()->isPointerTy()) continue;
++                std::unordered_set<Value*> visited;
++                findPointerOrigin(Arg, visited, M);
++            }
++        }
++        return PreservedAnalyses::all();
++    }
++
++// -----------------------------------------------------------------------------
++// new-PM entrypoint (so you can still drive with -fpass-plugin if desired):
++extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo
++llvmGetPassPluginInfo() {
++  return {
++    LLVM_PLUGIN_API_VERSION, "PtrInstrumentPass", "v0.1",
++    [](PassBuilder &PB) {
++      PB.registerPipelineParsingCallback(
++        [](StringRef Name,
++           ModulePassManager &MPM,
++           ArrayRef<PassBuilder::PipelineElement>) {
++          if (Name == "ptr-instrument") {
++            MPM.addPass(PtrInstrumentPass());
++            return true;
++          }
++          return false;
++        });
++    }
++  };
++}
+diff --git a/clang/lib/Custom/CMakeLists.txt b/clang/lib/Custom/CMakeLists.txt
+new file mode 100644
+index 000000000000..37d5ed1ff553
+--- /dev/null
++++ b/clang/lib/Custom/CMakeLists.txt
+@@ -0,0 +1,18 @@
++project(PtrInstrumentPass LANGUAGES CXX)
++
++find_package(LLVM REQUIRED CONFIG HINTS "${LLVM_CMAKE_DIR}")
++list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
++include(AddLLVM)
++
++# Build as a true Clang component (so we can link into clang itself)
++add_llvm_component_library(PtrInstrumentPass
++  InstrumentPass.cpp
++  DEPENDS
++    intrinsics_gen            # only if you actually use any intrinsics
++  LINK_COMPONENTS
++    Core
++    Support
++    Analysis                  # getUnderlyingObject
++    TransformUtils            # IRBuilder helpers
++    PassBuilder               # createModuleToFunctionPassAdaptor
++)
+diff --git a/clang/lib/Custom/InstrumentPass.cpp b/clang/lib/Custom/InstrumentPass.cpp
+new file mode 100644
+index 000000000000..f41f34c7183b
+--- /dev/null
++++ b/clang/lib/Custom/InstrumentPass.cpp
+@@ -0,0 +1,263 @@
++#include "llvm/IR/PassManager.h"
++#include "llvm/IR/Function.h"
++#include "llvm/IR/Module.h"
++#include "llvm/IR/Instructions.h"
++#include "llvm/IR/InstIterator.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Passes/PassPlugin.h"
++#include "llvm/Passes/PassBuilder.h" 
++#include <unordered_set>
++
++using namespace llvm;
++
++namespace {
++struct PtrInstrumentPass : public PassInfoMixin<PtrInstrumentPass> {
++
++    void instrumentAlloca(AllocaInst *AI) {
++      Function *F = AI->getFunction();
++      LLVMContext &C = AI->getContext();
++      IRBuilder<> Builder(AI);
++
++      Type *ETy = AI->getAllocatedType();
++      DataLayout DL(AI->getModule());
++      uint64_t ElemSize = DL.getTypeAllocSize(ETy);
++      Value *ElemSizeVal = ConstantInt::get(Builder.getInt64Ty(), ElemSize);
++      Value *TotalSize = ElemSizeVal; 
++      
++      if( AI->isArrayAllocation()) {
++        TotalSize = Builder.CreateMul(AI->getArraySize(), ElemSizeVal, "total_size");
++      }
++      
++      Module *M = AI->getModule();
++      FunctionCallee InstMallocFunc = M->getOrInsertFunction(
++          "instru_malloc",
++          FunctionType::get(Type::getInt8Ty(C)->getPointerTo(0), {Builder.getInt64Ty()}, false));
++      
++      Value *MallocCall = Builder.CreateCall(InstMallocFunc, TotalSize, "malloc_instrumented");
++      Value *TypedMalloc = Builder.CreateBitCast(MallocCall, AI->getType(), "casted_alloca");
++
++      AI->replaceAllUsesWith(TypedMalloc);
++      
++      FunctionCallee InstFreeFunc = M->getOrInsertFunction(
++          "instru_free",
++          FunctionType::get(Type::getVoidTy(C), {Type::getInt8Ty(C)->getPointerTo(0)}, false));
++      
++      for (auto &BB : *F) {
++        if (isa<ReturnInst>(BB.getTerminator())) {
++          IRBuilder<> RetBuilder(BB.getTerminator());
++          Value *ToFree = RetBuilder.CreateBitCast(TypedMalloc, Type::getInt8Ty(C)->getPointerTo(0), "casted_free");
++          RetBuilder.CreateCall(InstFreeFunc, {ToFree});
++          return;
++        }
++      }
++    }
++
++    void instrumentMalloc(CallBase *CB) {
++      Module *M = CB->getModule();
++      LLVMContext &C = M->getContext();
++      IRBuilder<> Builder(CB);
++      FunctionCallee InstMallocFunc = M->getOrInsertFunction(
++          "instru_malloc",
++          FunctionType::get(Type::getInt8Ty(C)->getPointerTo(0), {Builder.getInt64Ty()}, false));
++ 
++      Value *Arg = CB->getArgOperand(0);
++      CallInst *NewCall = Builder.CreateCall(InstMallocFunc, Arg, "malloc_instrumented");
++      CB->replaceAllUsesWith(NewCall);
++      CB->eraseFromParent();
++
++    }
++
++    void instrumentMmap(CallBase *CB) {
++      Module *M = CB->getModule();
++      LLVMContext &C = M->getContext();
++      IRBuilder<> Builder(CB);
++
++      FunctionCallee InstMmapFunc = M->getOrInsertFunction(
++          "mmap",
++          FunctionType::get(Type::getInt8Ty(M->getContext())->getPointerTo(0), {Type::getInt8Ty(M->getContext())->getPointerTo(0), 
++            Type::getInt64Ty(M->getContext()), Type::getInt32Ty(M->getContext()), Type::getInt64Ty(M->getContext()),
++            Type::getInt32Ty(M->getContext()), Type::getInt64Ty(M->getContext())}, false));
++
++      SmallVector<Value *, 6> NewArgs;
++      for (unsigned i = 0; i < 6; ++i)
++        NewArgs.push_back(CB->getArgOperand(i));
++
++      Value *FlagMask = ConstantInt::get(Type::getInt64Ty(C), 0x1000000000000000ULL);
++      Value *ModifiedFlags = Builder.CreateOr(NewArgs[3], FlagMask, "flags_or");
++
++      NewArgs[3] = ModifiedFlags;
++      CallInst *NewCall = Builder.CreateCall(InstMmapFunc, NewArgs, "mmap_instrumented");
++      CB->replaceAllUsesWith(NewCall);
++      CB->eraseFromParent();
++    }
++
++    Value* findPointerOrigin(Value *V, std::unordered_set<Value*> &Visited, Module& M) {
++        if (!V || Visited.count(V)) return nullptr;
++        Visited.insert(V);
++
++        auto &Ctx = M.getContext();
++        auto &DL = M.getDataLayout();
++
++        if (auto *AI = dyn_cast<AllocaInst>(V)) {
++            if (AI->getAllocatedType()->isPointerTy()) {
++                for (User *U : AI->users()) {
++                    if (auto *SI = dyn_cast<StoreInst>(U)) {
++                        Value *stored = SI->getValueOperand();
++                        return findPointerOrigin(stored, Visited, M);
++                    }
++                }
++                return nullptr;
++            }
++            instrumentAlloca(AI);
++            return V;
++        }
++
++        if (auto *GV = dyn_cast<GlobalVariable>(V)) {
++            GV->setSection("hmm_section");
++            GV->setAlignment(Align(65536));
++
++            uint64_t Size = DL.getTypeAllocSize(GV->getValueType());
++            uint64_t PaddedSize = (65536 - (Size %65536)) % 65536;
++            ArrayType *PadTy =  ArrayType::get(Type::getInt8Ty(Ctx), PaddedSize);
++            Constant *Z = ConstantAggregateZero::get(PadTy);
++
++            auto *PadGV = new GlobalVariable(
++              M, PadTy, false, GV->getLinkage(), Z, GV->getName() + ".pad");
++            PadGV->setSection(GV->getSection());
++
++            return V;
++        }
++        if (auto *CB = dyn_cast<CallBase>(V)) {
++            Value *CalledVal = CB->getCalledOperand();
++
++            if (Function *F = dyn_cast<Function>(CalledVal)) {
++                StringRef Name = F->getName();
++                if (Name == "malloc") {
++                    instrumentMalloc(CB);
++                    return V;
++                } else if (Name == "mmap") {
++                    instrumentMmap(CB);
++                    return V;
++                }
++            } else if (CalledVal) {
++                if (auto *CE = dyn_cast<ConstantExpr>(CalledVal)) {
++                    if (CE->isCast()) {
++                        if (Function *F = dyn_cast<Function>(CE->getOperand(0))) {
++                            StringRef Name = F->getName();
++                            if (Name == "malloc") {
++                                instrumentMalloc(CB);
++                                return V;
++                            } else if (Name == "mmap") {
++                               instrumentMmap(CB);
++                               return V;
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++        if (auto *BC = dyn_cast<BitCastInst>(V))
++            return findPointerOrigin(BC->getOperand(0), Visited, M);
++
++        if (auto *GEP = dyn_cast<GetElementPtrInst>(V))
++            return findPointerOrigin(GEP->getPointerOperand(), Visited, M);
++
++        if (auto *LI = dyn_cast<LoadInst>(V))
++            return findPointerOrigin(LI->getPointerOperand(), Visited, M);
++
++        if (auto *Arg = dyn_cast<Argument>(V)) {
++            Function *Parent = Arg->getParent();
++            for (User *U : Parent->users()) {
++                if (auto *Call = dyn_cast<CallBase>(U)) {
++                    if (Arg->getArgNo() < Call->arg_size()) {
++                        Value *PassedVal = Call->getArgOperand(Arg->getArgNo());
++                        return findPointerOrigin(PassedVal, Visited, M);
++                    }
++                }
++            }
++        }
++
++        return nullptr;
++    }
++
++    PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
++
++        LLVMContext &Ctx = M.getContext();
++
++        if(!M.getFunction("instru_malloc")) {
++            FunctionType *MallocType = FunctionType::get(
++                Type::getInt8Ty(Ctx)->getPointerTo(0),
++                {Type::getInt64Ty(Ctx)},
++                false
++            );
++            FunctionType *FreeType = FunctionType::get(
++                Type::getVoidTy(Ctx),
++                {Type::getInt8Ty(Ctx)->getPointerTo(0)},
++                false
++            );
++            Function::Create(MallocType, Function::ExternalLinkage, "instru_malloc", M);
++            Function::Create(FreeType, Function::ExternalLinkage, "instru_free", M);
++        }
++
++        FunctionCallee instruFree = M.getOrInsertFunction(
++            "instru_free",
++            FunctionType::get(Type::getVoidTy(Ctx), {Type::getInt8Ty(Ctx)->getPointerTo(0)}, false)
++        );
++       
++        for (Function &F : M) {
++            for (BasicBlock &BB : F) {
++                for (auto It = BB.begin(); It != BB.end(); ) {
++                    Instruction *I = &*It++;
++                    if (auto *CB = dyn_cast<CallBase>(I)) {
++                        Value *Callee = CB->getCalledOperand()->stripPointerCasts();
++                        Function *F = dyn_cast<Function>(Callee);
++                        if (!F || F->getName() != "free") continue;
++
++                        if (CB->arg_size() != 1) continue; // sanity check
++
++                        IRBuilder<> Builder(CB);
++                        Value *Arg = CB->getArgOperand(0);
++                        Builder.CreateCall(instruFree, {Arg});
++
++                        CB->eraseFromParent();  // Remove the original call
++                    }
++                }
++            }
++        }
++
++        for (Function &F : M) {
++            if (!F.getName().contains("__device_stub__")) continue;
++            errs() << "Processing function: " << F.getName() << "\n";
++            for (Argument &Arg : F.args()) {
++                if (!Arg.getType()->isPointerTy()) continue;
++
++                std::unordered_set<Value*> visited;
++                findPointerOrigin(&Arg, visited, M);
++            }
++        }
++        return PreservedAnalyses::all();
++    }
++};
++} // namespace
++
++// -----------------------------------------------------------------------------
++// new-PM entrypoint (so you can still drive with -fpass-plugin if desired):
++extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo
++llvmGetPassPluginInfo() {
++  return {
++    LLVM_PLUGIN_API_VERSION, "PtrInstrumentPass", "v0.1",
++    [](PassBuilder &PB) {
++      PB.registerPipelineParsingCallback(
++        [](StringRef Name,
++           ModulePassManager &MPM,
++           ArrayRef<PassBuilder::PipelineElement>) {
++          if (Name == "ptr-instrument") {
++            MPM.addPass(PtrInstrumentPass());
++            return true;
++          }
++          return false;
++        });
++    }
++  };
++}
+diff --git a/clang/lib/Driver/CMakeLists.txt b/clang/lib/Driver/CMakeLists.txt
+index a6bd2d41e797..dc4baecb2b61 100644
+--- a/clang/lib/Driver/CMakeLists.txt
++++ b/clang/lib/Driver/CMakeLists.txt
+@@ -98,5 +98,6 @@ add_clang_library(clangDriver
+ 
+   LINK_LIBS
+   clangBasic
++  PtrInstrumentPass
+   ${system_libs}
+   )

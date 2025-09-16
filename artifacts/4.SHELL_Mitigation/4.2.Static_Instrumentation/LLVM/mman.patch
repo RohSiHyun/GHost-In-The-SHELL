@@ -1,0 +1,11 @@
+--- mman.h	2025-05-17 15:32:54.856200355 +0900
++++ mman.h	2025-05-17 15:32:37.127495152 +0900
+@@ -55,7 +55,7 @@
+ 
+ #ifndef __USE_FILE_OFFSET64
+ extern void *mmap (void *__addr, size_t __len, int __prot,
+-		   int __flags, int __fd, __off_t __offset) __THROW;
++		   size_t __flags, int __fd, __off_t __offset) __THROW;
+ #else
+ # ifdef __REDIRECT_NTH
+ extern void * __REDIRECT_NTH (mmap,

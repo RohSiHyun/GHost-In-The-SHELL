@@ -1,0 +1,4 @@
+{
+  "subdir": "src/third_party/enterprise_companion/chromium_linux64/cipd",
+  "package_name": "chromium/third_party/enterprise_companion/chromium_linux64"
+}

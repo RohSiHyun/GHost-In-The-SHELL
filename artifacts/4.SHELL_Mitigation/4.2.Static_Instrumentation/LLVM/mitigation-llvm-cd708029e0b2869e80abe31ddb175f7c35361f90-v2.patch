@@ -1,0 +1,478 @@
+diff --git a/clang/lib/CMakeLists.txt b/clang/lib/CMakeLists.txt
+index 14ba55360fe0..bf730b738c98 100644
+--- a/clang/lib/CMakeLists.txt
++++ b/clang/lib/CMakeLists.txt
+@@ -35,3 +35,5 @@ add_subdirectory(Support)
+ if(CLANG_ENABLE_CIR)
+   add_subdirectory(CIR)
+ endif()
++
++add_subdirectory(Custom)
+\ No newline at end of file
+diff --git a/clang/lib/Custom/CMakeLists.txt b/clang/lib/Custom/CMakeLists.txt
+new file mode 100644
+index 000000000000..d2802067e933
+--- /dev/null
++++ b/clang/lib/Custom/CMakeLists.txt
+@@ -0,0 +1,17 @@
++cmake_minimum_required(VERSION 3.13)
++
++project(PtrInstrumentPass LANGUAGES C CXX)
++
++# Find LLVM (user must define LLVM_DIR if not installed system-wide)
++find_package(LLVM REQUIRED CONFIG HINTS "${LLVM_CMAKE_DIR}")
++list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
++
++# Recommended: avoid RTTI mismatch
++set(CMAKE_CXX_STANDARD 17)
++set(CMAKE_CXX_STANDARD_REQUIRED YES)
++set(CMAKE_CXX_EXTENSIONS NO)
++
++# Plugin build
++add_llvm_pass_plugin(PtrInstrumentPass
++  InstrumentPass.cpp
++)
+diff --git a/clang/lib/Custom/InstrumentPass.cpp b/clang/lib/Custom/InstrumentPass.cpp
+new file mode 100644
+index 000000000000..6ad18215ba12
+--- /dev/null
++++ b/clang/lib/Custom/InstrumentPass.cpp
+@@ -0,0 +1,268 @@
++#include "llvm/IR/PassManager.h"
++#include "llvm/IR/Function.h"
++#include "llvm/IR/Module.h"
++#include "llvm/IR/Instructions.h"
++#include "llvm/IR/InstIterator.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Passes/PassPlugin.h"
++#include "llvm/Passes/PassBuilder.h" 
++#include <unordered_set>
++
++using namespace llvm;
++
++namespace {
++struct PointerOriginPass : public PassInfoMixin<PointerOriginPass> {
++
++    void instrumentAlloca(AllocaInst *AI) {
++      Function *F = AI->getFunction();
++      LLVMContext &C = AI->getContext();
++      IRBuilder<> Builder(AI);
++
++      Type *ETy = AI->getAllocatedType();
++      DataLayout DL(AI->getModule());
++      uint64_t ElemSize = DL.getTypeAllocSize(ETy);
++      Value *ElemSizeVal = ConstantInt::get(Builder.getInt64Ty(), ElemSize);
++      Value *TotalSize = ElemSizeVal; 
++      
++      if( AI->isArrayAllocation()) {
++        TotalSize = Builder.CreateMul(AI->getArraySize(), ElemSizeVal, "total_size");
++      }
++      
++      Module *M = AI->getModule();
++      FunctionCallee InstMallocFunc = M->getOrInsertFunction(
++          "instru_malloc",
++          FunctionType::get(Type::getInt8Ty(C)->getPointerTo(0), {Builder.getInt64Ty()}, false));
++      
++      Value *MallocCall = Builder.CreateCall(InstMallocFunc, TotalSize, "malloc_instrumented");
++      Value *TypedMalloc = Builder.CreateBitCast(MallocCall, AI->getType(), "casted_alloca");
++
++      AI->replaceAllUsesWith(TypedMalloc);
++      
++      FunctionCallee InstFreeFunc = M->getOrInsertFunction(
++          "instru_free",
++          FunctionType::get(Type::getVoidTy(C), {Type::getInt8Ty(C)->getPointerTo(0)}, false));
++      
++      for (auto &BB : *F) {
++        if (isa<ReturnInst>(BB.getTerminator())) {
++          IRBuilder<> RetBuilder(BB.getTerminator());
++          Value *ToFree = RetBuilder.CreateBitCast(TypedMalloc, Type::getInt8Ty(C)->getPointerTo(0), "casted_free");
++          RetBuilder.CreateCall(InstFreeFunc, {ToFree});
++          return;
++        }
++      }
++    }
++
++    void instrumentMalloc(CallBase *CB) {
++      Module *M = CB->getModule();
++      LLVMContext &C = M->getContext();
++      IRBuilder<> Builder(CB);
++      FunctionCallee InstMallocFunc = M->getOrInsertFunction(
++          "instru_malloc",
++          FunctionType::get(Type::getInt8Ty(C)->getPointerTo(0), {Builder.getInt64Ty()}, false));
++ 
++      Value *Arg = CB->getArgOperand(0);
++      CallInst *NewCall = Builder.CreateCall(InstMallocFunc, Arg, "malloc_instrumented");
++      CB->replaceAllUsesWith(NewCall);
++      CB->eraseFromParent();
++
++    }
++
++    void instrumentMmap(CallBase *CB) {
++      Module *M = CB->getModule();
++      LLVMContext &C = M->getContext();
++      IRBuilder<> Builder(CB);
++
++      FunctionCallee InstMmapFunc = M->getOrInsertFunction(
++          "mmap",
++          FunctionType::get(Type::getInt8Ty(M->getContext())->getPointerTo(0), {Type::getInt8Ty(M->getContext())->getPointerTo(0), 
++            Type::getInt64Ty(M->getContext()), Type::getInt32Ty(M->getContext()), Type::getInt64Ty(M->getContext()),
++            Type::getInt32Ty(M->getContext()), Type::getInt64Ty(M->getContext())}, false));
++
++      SmallVector<Value *, 6> NewArgs;
++      for (unsigned i = 0; i < 6; ++i)
++        NewArgs.push_back(CB->getArgOperand(i));
++
++      Value *FlagMask = ConstantInt::get(Type::getInt64Ty(C), 0x1000000000000000ULL);
++      Value *ModifiedFlags = Builder.CreateOr(NewArgs[3], FlagMask, "flags_or");
++
++      NewArgs[3] = ModifiedFlags;
++      CallInst *NewCall = Builder.CreateCall(InstMmapFunc, NewArgs, "mmap_instrumented");
++      CB->replaceAllUsesWith(NewCall);
++      CB->eraseFromParent();
++    }
++
++    Value* findPointerOrigin(Value *V, std::unordered_set<Value*> &Visited, Module& M) {
++        if (!V || Visited.count(V)) return nullptr;
++        Visited.insert(V);
++
++        auto &Ctx = M.getContext();
++        auto &DL = M.getDataLayout();
++
++        if (auto *AI = dyn_cast<AllocaInst>(V)) {
++            if (AI->getAllocatedType()->isPointerTy()) {
++                for (User *U : AI->users()) {
++                    if (auto *SI = dyn_cast<StoreInst>(U)) {
++                        Value *stored = SI->getValueOperand();
++                        return findPointerOrigin(stored, Visited, M);
++                    }
++                }
++                return nullptr;
++            }
++            instrumentAlloca(AI);
++            errs() << "  -> stack (alloca): " << *AI << "\n";
++            return V;
++        }
++
++        if (auto *GV = dyn_cast<GlobalVariable>(V)) {
++            GV->setSection("hmm_section");
++            GV->setAlignment(Align(65536));
++
++            uint64_t Size = DL.getTypeAllocSize(GV->getValueType());
++            uint64_t PaddedSize = (65536 - (Size %65536)) % 65536;
++            ArrayType *PadTy =  ArrayType::get(Type::getInt8Ty(Ctx), PaddedSize);
++            Constant *Z = ConstantAggregateZero::get(PadTy);
++
++            auto *PadGV = new GlobalVariable(
++              M, PadTy, false, GV->getLinkage(), Z, GV->getName() + ".pad");
++            PadGV->setSection(GV->getSection());
++            errs() << "  -> global (size: " << Size << ", padded: " << PaddedSize << "): " << *GV << "\n";
++
++            errs() << "  -> global: " << GV->getName() << "\n";
++            return V;
++        }
++        if (auto *CB = dyn_cast<CallBase>(V)) {
++            Value *CalledVal = CB->getCalledOperand();
++
++            if (Function *F = dyn_cast<Function>(CalledVal)) {
++                StringRef Name = F->getName();
++                if (Name == "malloc") {
++                    errs() << "  -> heap (" << Name << "): " << *CB << "\n";
++                    instrumentMalloc(CB);
++                    return V;
++                } else if (Name == "mmap") {
++                    instrumentMmap(CB);
++                    return V;
++                }
++            } else if (CalledVal) {
++                if (auto *CE = dyn_cast<ConstantExpr>(CalledVal)) {
++                    if (CE->isCast()) {
++                        if (Function *F = dyn_cast<Function>(CE->getOperand(0))) {
++                            StringRef Name = F->getName();
++                            if (Name == "malloc") {
++                                errs() << "  -> heap (indirect " << Name << "): " << *CB << "\n";
++                                instrumentMalloc(CB);
++                                return V;
++                            } else if (Name == "mmap") {
++                               instrumentMmap(CB);
++                               return V;
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++        if (auto *BC = dyn_cast<BitCastInst>(V))
++            return findPointerOrigin(BC->getOperand(0), Visited, M);
++
++        if (auto *GEP = dyn_cast<GetElementPtrInst>(V))
++            return findPointerOrigin(GEP->getPointerOperand(), Visited, M);
++
++        if (auto *LI = dyn_cast<LoadInst>(V))
++            return findPointerOrigin(LI->getPointerOperand(), Visited, M);
++
++        if (auto *Arg = dyn_cast<Argument>(V)) {
++            Function *Parent = Arg->getParent();
++            for (User *U : Parent->users()) {
++                if (auto *Call = dyn_cast<CallBase>(U)) {
++                    if (Arg->getArgNo() < Call->arg_size()) {
++                        Value *PassedVal = Call->getArgOperand(Arg->getArgNo());
++                        errs() << "  -> passed from caller: " << Call->getCaller()->getName() << "\n";
++                        return findPointerOrigin(PassedVal, Visited, M);
++                    }
++                }
++            }
++        }
++
++        return nullptr;
++    }
++
++    PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
++
++        LLVMContext &Ctx = M.getContext();
++
++        if(!M.getFunction("instru_malloc")) {
++            FunctionType *MallocType = FunctionType::get(
++                Type::getInt8Ty(Ctx)->getPointerTo(0),
++                {Type::getInt64Ty(Ctx)},
++                false
++            );
++            FunctionType *FreeType = FunctionType::get(
++                Type::getVoidTy(Ctx),
++                {Type::getInt8Ty(Ctx)->getPointerTo(0)},
++                false
++            );
++            Function::Create(MallocType, Function::ExternalLinkage, "instru_malloc", M);
++            Function::Create(FreeType, Function::ExternalLinkage, "instru_free", M);
++        }
++
++        FunctionCallee instruFree = M.getOrInsertFunction(
++            "instru_free",
++            FunctionType::get(Type::getVoidTy(Ctx), {Type::getInt8Ty(Ctx)->getPointerTo(0)}, false)
++        );
++       
++        for (Function &F : M) {
++            for (BasicBlock &BB : F) {
++                for (auto It = BB.begin(); It != BB.end(); ) {
++                    Instruction *I = &*It++;
++                    if (auto *CB = dyn_cast<CallBase>(I)) {
++                        Value *Callee = CB->getCalledOperand()->stripPointerCasts();
++                        Function *F = dyn_cast<Function>(Callee);
++                        if (!F || F->getName() != "free") continue;
++
++                        if (CB->arg_size() != 1) continue; // sanity check
++
++                        IRBuilder<> Builder(CB);
++                        Value *Arg = CB->getArgOperand(0);
++                        Builder.CreateCall(instruFree, {Arg});
++
++                        CB->eraseFromParent();  // Remove the original call
++                    }
++                }
++            }
++        }
++
++        for (Function &F : M) {
++            if (F.isDeclaration()) continue;
++            if (!F.getName().starts_with("target")) continue;
++            errs() << "Function: " << F.getName() << "\n";
++            for (Argument &Arg : F.args()) {
++                if (!Arg.getType()->isPointerTy()) continue;
++
++                errs() << "  Pointer argument: " << Arg.getName() << "\n";
++                std::unordered_set<Value*> visited;
++                findPointerOrigin(&Arg, visited, M);
++            }
++        }
++        return PreservedAnalyses::all();
++    }
++};
++} // namespace
++
++/// Plugin registration
++extern "C" ::llvm::PassPluginLibraryInfo llvmGetPassPluginInfo() {
++    return {
++        LLVM_PLUGIN_API_VERSION, "PointerOriginPass", LLVM_VERSION_STRING,
++        [](PassBuilder &PB) {
++            PB.registerPipelineParsingCallback(
++                [](StringRef Name, ModulePassManager &MPM,
++                   ArrayRef<PassBuilder::PipelineElement>) {
++                    if (Name == "pointer-origin-pass") {
++                        MPM.addPass(PointerOriginPass());
++                        return true;
++                    }
++                    return false;
++                });
++        }
++    };
++}
+diff --git a/polly/lib/External/isl/imath/Makefile b/polly/lib/External/isl/imath/Makefile
+deleted file mode 100644
+index ff57fa4784f1..000000000000
+--- a/polly/lib/External/isl/imath/Makefile
++++ /dev/null
+@@ -1,131 +0,0 @@
+-##
+-## Name:     Makefile
+-## Purpose:  Makefile for imath library and associated tools
+-## Author:   M. J. Fromberger
+-##
+-## Copyright (C) 2002-2008 Michael J. Fromberger, All Rights Reserved.
+-##
+-## Permission is hereby granted, free of charge, to any person obtaining a copy
+-## of this software and associated documentation files (the "Software"), to
+-## deal in the Software without restriction, including without limitation the
+-## rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+-## sell copies of the Software, and to permit persons to whom the Software is
+-## furnished to do so, subject to the following conditions:
+-##
+-## The above copyright notice and this permission notice shall be included in
+-## all copies or substantial portions of the Software.
+-##
+-## THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-## IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-## FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+-## AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-## LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+-## FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+-## IN THE SOFTWARE.
+-##
+-
+-# --- begin configuration section ---
+-
+-## Generic settings for systems with GCC (default)
+-## To build with debugging, add DEBUG=Y on the "make" command line.
+-ifeq ($(origin CC),default)
+-CC=gcc
+-endif
+-CFLAGS+=-pedantic -Wall -Werror -Wextra -Wno-unused-parameter \
+-	-I. -std=c99 $(DFLAGS$(DEBUG))
+-CSFLAGS=$(CFLAGS) -fPIC
+-#LIBS=
+-
+-# These are needed to build the GMP compatibility tests.
+-export CC CFLAGS
+-
+-DFLAGS=-O3 -funroll-loops -finline-functions
+-DFLAGSN=$(DFLAGS)
+-DFLAGSY=-g -DDEBUG=1
+-
+-# --- end of configuration section ---
+-
+-TARGETS=bintest bug-swap imtest imtimer rtest
+-HDRS=imath.h imrat.h iprime.h imdrover.h rsamath.h gmp_compat.h
+-SRCS=$(HDRS:.h=.c) $(TARGETS:=.c)
+-OBJS=$(SRCS:.c=.o)
+-OTHER=LICENSE ChangeLog Makefile doc.md doc.md.in \
+-	tools/findthreshold.py tools/mkdoc.py .dockerignore
+-VPATH += examples tests
+-EXAMPLES=basecvt findprime imcalc input pi randprime rounding rsakey
+-
+-.PHONY: all test clean distclean
+-.SUFFIXES: .so .md
+-
+-.c.o:
+-	$(CC) $(CFLAGS) -c $<
+-
+-.c.so:
+-	$(CC) $(CSFLAGS) -o $@ -c $<
+-
+-all: objs examples test
+-
+-objs: $(OBJS)
+-
+-check: test gmp-compat-test
+-	@ echo "Completed running imath and gmp-compat unit tests"
+-
+-test: imtest pi bug-swap doc.md
+-	@ echo ""
+-	@ echo "Running tests, you should not see any 'FAILED' lines here."
+-	@ echo "If you do, please see doc.txt for how to report a bug."
+-	@ echo ""
+-	(cd tests && ./test.sh)
+-
+-gmp-compat-test: libimath.so
+-	@ echo "Running gmp-compat unit tests"
+-	@ echo "Printing progress after every 100,000 tests"
+-	make -C tests/gmp-compat-test TESTS="-p 100000 random.tests"
+-
+-docker-test:
+-	if which docker ; \
+-	then \
+-		docker run --rm -it \
+-		"$(shell docker build -f tests/linux/Dockerfile -q .)" ; \
+-	fi
+-
+-$(EXAMPLES):%: imath.o imrat.o iprime.o %.o
+-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+-
+-$(TARGETS):%: imath.o %.o
+-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+-
+-examples: $(EXAMPLES)
+-
+-libimath.so: imath.so imrat.so gmp_compat.so
+-	$(CC) $(CFLAGS) -shared -o $@ $^
+-
+-imtest: imtest.o imath.o imrat.o imdrover.o iprime.o
+-
+-rtest: rtest.o imath.o rsamath.o
+-
+-# Requires clang-format: https://clang.llvm.org/docs/ClangFormat.html
+-format-c:
+-	@ echo "Formatting C source files and headers ..."
+-	find . -type f -name '*.h' -o -name '*.c' -print0 | \
+-		xargs -0 clang-format --style=Google -i
+-
+-# Requires yapf: pip install yapf
+-format-py:
+-	@ echo "Formatting Python source files ..."
+-	find . -type f -name '*.py' -print0 | \
+-		xargs -0 yapf --style=pep8 -i
+-
+-# Format source files.
+-format: format-c format-py
+-
+-# Generate documentation from header comments.
+-# This rule depends on the header files to ensure the docs get updated when the
+-# headers change.
+-doc.md: doc.md.in imath.h imrat.h tools/mkdoc.py
+-	tools/mkdoc.py $< $@
+-
+-clean distclean:
+-	rm -f *.o *.so *.pyc *~ core gmon.out tests/*~ tests/gmon.out examples/*~
+-	make -C tests/gmp-compat-test clean
+-	rm -f $(TARGETS) $(EXAMPLES)
+diff --git a/polly/lib/External/isl/imath/tests/gmp-compat-test/Makefile b/polly/lib/External/isl/imath/tests/gmp-compat-test/Makefile
+deleted file mode 100644
+index 8d4421035387..000000000000
+--- a/polly/lib/External/isl/imath/tests/gmp-compat-test/Makefile
++++ /dev/null
+@@ -1,27 +0,0 @@
+-CFLAGS+=-fPIC -I$(IMATH_DIR)
+-IMATH_DIR=../..
+-
+-runtest: imath_test.so gmp_test.so wrappers.py random.tests
+-	./runtest $(TESTS)
+-
+-gmp_test.c: gmp_custom_test.c genctest.py gmpapi.py
+-	./genctest.py gmp > $@
+-
+-imath_test.c: imath_custom_test.c genctest.py gmpapi.py
+-	./genctest.py imath > $@
+-
+-gmp_test.so: gmp_test.o
+-	$(CC) $(CFLAGS) -shared -o $@ $^ -lgmp
+-
+-imath_test.so: imath_test.o
+-	$(CC) $(CFLAGS) -shared -L$(IMATH_DIR) -o $@ $^ -limath
+-
+-wrappers.py: genpytest.py gmpapi.py
+-	./genpytest.py > $@
+-
+-random.tests: gendata.py
+-	./gendata.py > $@
+-
+-clean:
+-	rm -f a.out *.so *.o gmp_test.c imath_test.c wrappers.py *.pyc
+-	rm -rf __pycache__

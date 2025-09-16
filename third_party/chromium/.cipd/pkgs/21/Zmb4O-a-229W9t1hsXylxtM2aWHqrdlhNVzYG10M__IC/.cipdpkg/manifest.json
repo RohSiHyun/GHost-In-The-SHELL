@@ -1,0 +1,19 @@
+{
+  "format_version": "1.1",
+  "package_name": "infra/tools/luci/swarming/linux-amd64",
+  "version_file": ".versions/swarming.cipd_version",
+  "actual_install_mode": "copy",
+  "files": [
+    {
+      "name": "swarming",
+      "size": 27129447,
+      "executable": true,
+      "hash": "1a09bptUwx2kX_3c-T4P-0IeTD2K3kCSTIgfQ_rFXLEC"
+    },
+    {
+      "name": ".versions/swarming.cipd_version",
+      "size": 126,
+      "hash": "K0gT_NTlUme2D6FLdqJjPfnG_kxC2RNmLQHJcvC3wOQC"
+    }
+  ]
+}

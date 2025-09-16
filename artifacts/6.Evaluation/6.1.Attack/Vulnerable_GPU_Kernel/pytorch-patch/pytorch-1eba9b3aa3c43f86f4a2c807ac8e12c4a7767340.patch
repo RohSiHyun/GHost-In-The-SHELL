@@ -1,0 +1,67 @@
+diff --git a/android/pytorch_android/CMakeLists.txt b/android/pytorch_android/CMakeLists.txt
+index 0d46f87094c..cb70290b17b 100644
+--- a/android/pytorch_android/CMakeLists.txt
++++ b/android/pytorch_android/CMakeLists.txt
+@@ -153,7 +153,7 @@ else()
+ 
+   if(USE_XNNPACK)
+     list(APPEND pytorch_jni_LIBS XNNPACK)
+-    list(APPEND pytorch_jni_LIBS microkernels-prod)
++    list(APPEND pytorch_jni_LIBS microkernels_prod)
+   endif()
+ 
+   if(USE_SYSTEM_PTHREADPOOL)
+diff --git a/cmake/Dependencies.cmake b/cmake/Dependencies.cmake
+index 1813f4418a2..48dc4d96c33 100644
+--- a/cmake/Dependencies.cmake
++++ b/cmake/Dependencies.cmake
+@@ -491,7 +491,7 @@ if(USE_NNPACK)
+ endif()
+ 
+ # ---[ XNNPACK
+-if(USE_XNNPACK AND NOT USE_SYSTEM_XNNPACK)
++if(1)
+   if(NOT DEFINED XNNPACK_SOURCE_DIR)
+     set(XNNPACK_SOURCE_DIR "${CAFFE2_THIRD_PARTY_ROOT}/XNNPACK" CACHE STRING "XNNPACK source directory")
+   endif()
+@@ -500,7 +500,7 @@ if(USE_XNNPACK AND NOT USE_SYSTEM_XNNPACK)
+     set(XNNPACK_INCLUDE_DIR "${XNNPACK_SOURCE_DIR}/include" CACHE STRING "XNNPACK include directory")
+   endif()
+ 
+-  if(NOT TARGET XNNPACK OR NOT TARGET microkernels-prod)
++  if(NOT TARGET XNNPACK OR NOT TARGET microkernels_prod)
+     set(XNNPACK_LIBRARY_TYPE "static" CACHE STRING "")
+     set(XNNPACK_BUILD_BENCHMARKS OFF CACHE BOOL "")
+     set(XNNPACK_BUILD_TESTS OFF CACHE BOOL "")
+@@ -549,14 +549,14 @@ if(USE_XNNPACK AND NOT USE_SYSTEM_XNNPACK)
+ 
+   include_directories(SYSTEM ${XNNPACK_INCLUDE_DIR})
+   list(APPEND Caffe2_DEPENDENCY_LIBS XNNPACK microkernels-prod)
+-elseif(NOT TARGET XNNPACK AND USE_SYSTEM_XNNPACK)
++elseif(NOT TARGET XNNPACK AND 0)
+   add_library(XNNPACK SHARED IMPORTED)
+   add_library(microkernels-prod SHARED IMPORTED)
+   find_library(XNNPACK_LIBRARY XNNPACK)
+-  find_library(microkernels-prod_LIBRARY microkernels-prod)
++  find_library(MICROKERNELS_PROD_LIBRARY microkernels-prod)
+   set_property(TARGET XNNPACK PROPERTY IMPORTED_LOCATION "${XNNPACK_LIBRARY}")
+-  set_property(TARGET microkernels-prod PROPERTY IMPORTED_LOCATION "${microkernels-prod_LIBRARY}")
+-  if(NOT XNNPACK_LIBRARY or NOT microkernels-prod_LIBRARY)
++  set_property(TARGET microkernels-prod PROPERTY IMPORTED_LOCATION "${MICROKERNELS_PROD_LIBRARY}")
++  if(NOT XNNPACK_LIBRARY OR NOT MICROKERNELS_PROD_LIBRARY)
+     message(FATAL_ERROR "Cannot find XNNPACK")
+   endif()
+   message("-- Found XNNPACK: ${XNNPACK_LIBRARY}")
+diff --git a/cmake/TorchConfig.cmake.in b/cmake/TorchConfig.cmake.in
+index 8f2b2c30aee..05655d27c5f 100644
+--- a/cmake/TorchConfig.cmake.in
++++ b/cmake/TorchConfig.cmake.in
+@@ -94,7 +94,7 @@ else()
+ 
+   if(@USE_XNNPACK@)
+     append_torchlib_if_found(XNNPACK)
+-    append_torchlib_if_found(microkernels-prod)
++    append_torchlib_if_found(microkernels_prod)
+   endif()
+ 
+   append_torchlib_if_found(caffe2_protos protobuf-lite protobuf protoc)

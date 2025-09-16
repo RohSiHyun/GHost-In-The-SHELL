@@ -1,0 +1,112 @@
+126122:   ./hmm-aslr-break
+0000000200000000   2048K -----   [ anon ]
+0000000200200000   2048K rw-s- nvidia0
+0000000200400000  49152K rw-s- nvidiactl
+0000000203400000  16384K -----   [ anon ]
+0000000204400000   2048K rw-s- nvidiactl
+0000000204600000   2048K rw-s- nvidiactl
+0000000204800000   2048K rw-s- nvidia-uvm
+0000000204a00000 4120576K -----   [ anon ]
+0000010000000000  65536K -----   [ anon ]
+00005e9e10ce1000     32K r---- hmm-aslr-break
+00005e9e10ce9000    508K r-x-- hmm-aslr-break
+00005e9e10d68000    140K r---- hmm-aslr-break
+00005e9e10d8b000     20K r---- hmm-aslr-break
+00005e9e10d90000      4K rw--- hmm-aslr-break
+00005e9e10d91000      4K rw---   [ anon ]
+00005e9e251ad000  11708K rw---   [ anon ]
+00007e368c000000 231424K -----   [ anon ]
+00007e369a200000   2048K rw-s- zero (deleted)
+00007e369a400000   4036K rw-s- zero (deleted)
+00007e369a7f1000 323644K -----   [ anon ]
+00007e36ae400000   2048K rw-s- nvidiactl
+00007e36ae600000   2048K rw-s- zero (deleted)
+00007e36ae800000   2048K rw-s- zero (deleted)
+00007e36aea00000   6144K -----   [ anon ]
+00007e36af000000   2048K rw-s- nvidiactl
+00007e36af200000   2048K -----   [ anon ]
+00007e36af400000   2048K rw-s- zero (deleted)
+00007e36af600000   5324K rw-s- nvidiactl
+00007e36afb33000   4916K -----   [ anon ]
+00007e36b0000000    132K rw---   [ anon ]
+00007e36b0021000  65404K -----   [ anon ]
+00007e36b4285000   1380K rw---   [ anon ]
+00007e36b43de000   2048K rw-s- zero (deleted)
+00007e36b45de000      4K rw-s- nvidiactl
+00007e36b45df000      4K rw-s- nvidiactl
+00007e36b45e0000      4K rw-s- nvidiactl
+00007e36b45e1000      4K rw-s- nvidiactl
+00007e36b45e2000      4K rw-s- nvidiactl
+00007e36b45e3000      4K rw-s- nvidiactl
+00007e36b45e4000      4K rw-s- nvidiactl
+00007e36b45e5000      4K rw-s- nvidiactl
+00007e36b45e6000      4K rw-s- nvidiactl
+00007e36b45e7000      4K rw-s- nvidiactl
+00007e36b45e8000      4K rw-s- nvidiactl
+00007e36b45e9000      4K rw-s- nvidiactl
+00007e36b45ea000      4K rw-s- nvidiactl
+00007e36b45eb000      4K rw-s- nvidiactl
+00007e36b45ec000      4K rw-s- nvidiactl
+00007e36b45ed000      4K rw-s- nvidiactl
+00007e36b45ee000  18500K -----   [ anon ]
+00007e36b57ff000      4K -----   [ anon ]
+00007e36b5800000   8192K rw---   [ anon ]
+00007e36b6000000  98304K -----   [ anon ]
+00007e36bc000000    132K rw---   [ anon ]
+00007e36bc021000  65404K -----   [ anon ]
+00007e36c00ba000   2208K rw---   [ anon ]
+00007e36c02e2000      4K -----   [ anon ]
+00007e36c02e3000   8192K rw---   [ anon ]
+00007e36c0ae3000  18564K -----   [ anon ]
+00007e36c1d04000   3052K rw---   [ anon ]
+00007e36c1fff000      4K -----   [ anon ]
+00007e36c2000000   8192K rw---   [ anon ]
+00007e36c2800000   1508K r---- libcuda.so.570.144
+00007e36c2979000  13424K r-x-- libcuda.so.570.144
+00007e36c3695000  53224K r---- libcuda.so.570.144
+00007e36c6a8f000    884K r---- libcuda.so.570.144
+00007e36c6b6c000    656K rw--- libcuda.so.570.144
+00007e36c6c10000    716K rw---   [ anon ]
+00007e36c6ccf000    288K rw---   [ anon ]
+00007e36c6d17000     64K r---- libm.so.6
+00007e36c6d27000    508K r-x-- libm.so.6
+00007e36c6da6000    352K r---- libm.so.6
+00007e36c6dfe000      4K r---- libm.so.6
+00007e36c6dff000      4K rw--- libm.so.6
+00007e36c6e00000    160K r---- libc.so.6
+00007e36c6e28000   1568K r-x-- libc.so.6
+00007e36c6fb0000    316K r---- libc.so.6
+00007e36c6fff000     16K r---- libc.so.6
+00007e36c7003000      8K rw--- libc.so.6
+00007e36c7005000     52K rw---   [ anon ]
+00007e36c701f000    260K rw---   [ anon ]
+00007e36c7060000      4K r---- librt.so.1
+00007e36c7061000      4K r-x-- librt.so.1
+00007e36c7062000      4K r---- librt.so.1
+00007e36c7063000      4K r---- librt.so.1
+00007e36c7064000      4K rw--- librt.so.1
+00007e36c7065000      4K r---- libpthread.so.0
+00007e36c7066000      4K r-x-- libpthread.so.0
+00007e36c7067000      4K r---- libpthread.so.0
+00007e36c7068000      4K r---- libpthread.so.0
+00007e36c7069000      4K rw--- libpthread.so.0
+00007e36c706a000      4K r---- libdl.so.2
+00007e36c706b000      4K r-x-- libdl.so.2
+00007e36c706c000      4K r---- libdl.so.2
+00007e36c706d000      4K r---- libdl.so.2
+00007e36c706e000      4K rw--- libdl.so.2
+00007e36c706f000     20K rw---   [ anon ]
+00007e36c707a000      4K r--s- nvidiactl
+00007e36c707b000     64K -w-s- nvidia0
+00007e36c708b000      8K rw---   [ anon ]
+00007e36c708d000      8K r----   [ anon ]
+00007e36c708f000      8K r----   [ anon ]
+00007e36c7091000      8K r-x--   [ anon ]
+00007e36c7093000      4K r---- ld-linux-x86-64.so.2
+00007e36c7094000    172K r-x-- ld-linux-x86-64.so.2
+00007e36c70bf000     40K r---- ld-linux-x86-64.so.2
+00007e36c70c9000      8K r---- ld-linux-x86-64.so.2
+00007e36c70cb000      8K rw--- ld-linux-x86-64.so.2
+00007ffcce6d9000    132K rw---   [ stack ]
+ffffffffff600000      4K --x--   [ anon ]
+ total          5238468K

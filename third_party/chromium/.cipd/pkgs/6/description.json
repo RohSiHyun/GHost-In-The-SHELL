@@ -1,0 +1,4 @@
+{
+  "subdir": "src/third_party/checkstyle/cipd",
+  "package_name": "chromium/third_party/checkstyle"
+}

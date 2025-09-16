@@ -1,0 +1,508 @@
+{
+  "format_version": "1.1",
+  "package_name": "chromium/third_party/screen-ai/linux",
+  "install_mode": "copy",
+  "actual_install_mode": "copy",
+  "files": [
+    {
+      "name": "BUILD.gn",
+      "size": 292,
+      "hash": "uf5qdHCNsGc17WB-LyuFKBKUsvgPfNEGvyIiIm4qFsQC"
+    },
+    {
+      "name": "OWNERS",
+      "size": 71,
+      "hash": "bheaaJA-XyyJ7BRKW1XqYIDZEBQiIYPoZxvAGfyO6x0C"
+    },
+    {
+      "name": "README.md",
+      "size": 84,
+      "hash": "art1jVJZMSGeObcXZlVEwPWq9HOS9Y_JPD1irk1kn6sC"
+    },
+    {
+      "name": "resources/README.md",
+      "size": 575,
+      "hash": "gew3N8wqCVCyLIU4RD-Lrra4bgHvgh4SOlNMJ0Ldb7wC"
+    },
+    {
+      "name": "resources/THIRD_PARTY_LICENSES",
+      "size": 828579,
+      "hash": "XqYa87XNyqhmGF9uCHpV4T3n3ne5zHiHv7Xw4TFTzDUC"
+    },
+    {
+      "name": "resources/aksara/aksara_page_layout_analysis_rpn_gro_2024_q4.binarypb",
+      "size": 327,
+      "hash": "z9hL6H7ehTC6dnVQGSjmijHfHXmgFbqjrArrqRv8Q_IC"
+    },
+    {
+      "name": "resources/aksara/aksara_page_layout_analysis_ti_rpn_gro_2024_q4.binarypb",
+      "size": 329,
+      "hash": "XNaTfPiyXNLCMChQxAfUZgG3d2EarxfKYzjQfZLbcj8C"
+    },
+    {
+      "name": "resources/files_list_main_content_extraction.txt",
+      "size": 43,
+      "hash": "BartmXuEU_7vzpq5X0ImyOqIet4U9T6g6gTxyHr5nmgC"
+    },
+    {
+      "name": "resources/files_list_ocr.txt",
+      "size": 6707,
+      "hash": "6qV45mSsd5i60ocoH6ET_2MgU7muZtOvpus_MkBi0-MC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/detection/gocr_group_rpn_text_detection_config_2024_q4_chrome.binarypb",
+      "size": 653,
+      "hash": "0XZXan855FvAihqwFOBLg_ZhDeNKLAxDTNsreR7CbMAC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/detection/gocr_group_rpn_text_detection_model_2024_q4.tflite",
+      "size": 2083136,
+      "hash": "VasSkLG0gdccZWNtk1cPTkiuDSwKdI93PZO5zRMSalEC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/gocr_line_recognition_omni_mobile_chrome_multiscript_2024_q4.binarypb",
+      "size": 1699,
+      "hash": "bK7hHT12VRc3DGgOUt37jScfDvtUC5S1LHle-v4SDQ0C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/arab.tflite",
+      "size": 2825648,
+      "hash": "8a8tyNLujoJlguAGGxyhlxHMs7Y4JbJ5w_SBx1Q2eisC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/arab_fst_config.pb",
+      "size": 543,
+      "hash": "_AJW_M3pH1GJEPoZm0AmUxlhqli7bQSZZy14OQWRN8EC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/arab_label_map.pb",
+      "size": 16570,
+      "hash": "KUeFTC9uIrdiyMFpw6iAtrdu7-J-XiOrPXFyOmGp1BUC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/arab_lm.fst",
+      "size": 2283833,
+      "hash": "B_2di6p-XAMGtu95LyCVDEKuGkhargIm_cXFZHCYaUgC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/arab_lm.syms",
+      "size": 4504,
+      "hash": "Y167pWFYrnuEyIKMCnQUNf6oKlNVk9RUt1W_7G1XSygC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/arab_prior.pb",
+      "size": 6532,
+      "hash": "QLtTx0XJ5bZemqyL3YYNWHnE25XXuUYoYIvl80K3EbwC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/bede.tflite",
+      "size": 3363720,
+      "hash": "zGhbZb6WAnz8eeRIZLZTIf8ygSJz4D6JoLcsI4Y11p8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/bede_label_map.pb",
+      "size": 83194,
+      "hash": "PSLkTbSA_jqoTcTh1YfvM7U-rQi2AwYDZY2iMLSRWZUC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/bede_prior.pb",
+      "size": 20301,
+      "hash": "-slCpla-MODVHc9F5nwcBm77P1M46Y5eBBAa6K8peRUC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/beng_config.pb",
+      "size": 367,
+      "hash": "xWbgjPuMHIWPyXq8NE7ujbr6lCiA4bRii7iGosl1dLMC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/beng_deva_gujr_guru.tflite",
+      "size": 4071928,
+      "hash": "Wdb3qe71x6zfNkSUw1qPXx0Moo8OwS9Mqom9_BK_u8IC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/beng_deva_gujr_guru_label_map.pb",
+      "size": 161067,
+      "hash": "h2Qx_HaonazIA6fHkNSwV841u6tV1aASUeuPoKgpFZkC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/cyrl.tflite",
+      "size": 2774200,
+      "hash": "SsctECygPEKDQlvhxTJZW1CxmBCk9myyDjMyGQx0azUC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/cyrl_fst_config.pb",
+      "size": 543,
+      "hash": "tKy4iEXN7-e4UTsPhW5UXprmXBpz2oh1H5GQNUy47RsC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/cyrl_label_map.pb",
+      "size": 12363,
+      "hash": "1BzqUB_0CZVLwp5-g-tpkuR1MSz6FQQAZs0iKpjcMZIC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/cyrl_lm.fst",
+      "size": 2066191,
+      "hash": "brVE95ikVXQUpNgzNxqhwveQDig6ZEoXhVE82KdAnrQC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/cyrl_lm.syms",
+      "size": 5615,
+      "hash": "ZK3OTB6Z9Chj3FCHN07tRKDssyG4PP7IpConKg1HP9MC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/cyrl_prior.pb",
+      "size": 5184,
+      "hash": "ij3AEN31TtAzyuKo6S1U6eCB_Z__mooqluCJmi4ElJYC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/deva_fst_config.pb",
+      "size": 543,
+      "hash": "XF5AGC_43-FZxXtzW1CV28bazFZKvMAKStwONePmP7sC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/deva_lm.fst",
+      "size": 2112224,
+      "hash": "xSuizRzIyt7cCxRsz1d8JAf0qzGJEFBw3KdVvNqgJx4C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/deva_lm.syms",
+      "size": 4107,
+      "hash": "hpgHYNHC8oH299E_KUTG1LOUpI9jeUlHrBY3yFc0te8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/geor.tflite",
+      "size": 2687120,
+      "hash": "7YUtxOXdZZ6JZP98HofSVKx4xwfovovomUmTXc7luXsC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/geor_config.pb",
+      "size": 367,
+      "hash": "bCPWKIvfyiRwpYAt7CRhiQhM2NAPi9JH_1klRBlGlOYC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/geor_label_map.pb",
+      "size": 6776,
+      "hash": "QjnC17MPKIvZgaHXH0GxzbEfog8k7jqJ4V_G8F1jqsoC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/gocr_mobile_und.tflite",
+      "size": 3017688,
+      "hash": "7hzSKAqdksVpmNhVshQfXpi1OUAHiPhK6YKH35ADdawC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/gocr_mobile_und_config.pb",
+      "size": 753,
+      "hash": "WJVAgobzv413m_hpXAZ58edR6eLGHbkKTqVLXE2JpfEC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/gocr_mobile_und_label_map.pb",
+      "size": 12358,
+      "hash": "IuC5rodRTe8aDz6aJLLnuUSWOtuwVfssJk7MuW--Sd4C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/grek.tflite",
+      "size": 2718504,
+      "hash": "A9PwsHHdljk3maTKSuumfZDsdeTk2XIIjFCwTovleoIC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/grek_config.pb",
+      "size": 367,
+      "hash": "gYn_mRzxwVEU_Ix2vMpCKsPZYEbG_c0mLVLzshsejpsC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/grek_label_map.pb",
+      "size": 8689,
+      "hash": "M4qCkUXu4fxYs04tb1gYIjS8DUls7Li6o2-eeQhkfFcC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/gujr.tflite",
+      "size": 3073688,
+      "hash": "Y6x9ZXc7SRJjd3qwPPyPX46k3AVfs3_rK47gFAWYOF4C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/gujr_config.pb",
+      "size": 367,
+      "hash": "u4G_ps_x81scEmotSFbRRQfC-GE14qvi2ogM1D4_RMMC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/gujr_label_map.pb",
+      "size": 52760,
+      "hash": "Aa1m4_0C2ociD-CH4QgCgGPnDomNu9QxOBbP3RLNNdEC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/guru_2024_q3_config.pb",
+      "size": 396,
+      "hash": "tpMSzLOuYYzv_5KFkONhNIcCQnO0ucxWh5-cx99cqCAC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hani_fst_config.pb",
+      "size": 555,
+      "hash": "clDd8LcwgqfCzHsEu_As7yqvP6WPuB6n_-pfb8q8dRYC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hani_lm.fst",
+      "size": 2002452,
+      "hash": "VptzJd5_p6Wir4FzohpflMKVjNe2WyJ0Pv-Evbpkmo4C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hani_lm.syms",
+      "size": 217496,
+      "hash": "Ujm2TwclUHeU1LPzeRaXtroOd5JmvieWrojCTj4BOf4C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hanijpan.tflite",
+      "size": 3847296,
+      "hash": "LFx38hhADHrL-jbPzhyZgzxnMAB06cnUZDvH6ceUcMIC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hanijpan_label_map.pb",
+      "size": 81131,
+      "hash": "6xACLsr37aGw-YpCTW0O6Eg4YVP4EG_fsyOuVB9Qv4oC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hanijpan_prior.pb",
+      "size": 32729,
+      "hash": "RYMbzcsX3c925HovniuQDmok_islbVvFg_IWHJFfmOcC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hebr.tflite",
+      "size": 2744528,
+      "hash": "GQbRAeYtIkKtRdsIqtyz-KzB4co6NAFVokQq_maJvDYC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hebr_config.pb",
+      "size": 367,
+      "hash": "6Gu9Ehf0HnSnE6OE76U8JepWptenp3XEgV6Ylpwf3o8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/hebr_label_map.pb",
+      "size": 11111,
+      "hash": "K7f1aMK5zxjDQ4Koi6CUMBnN6AVfk_Chie4MTp5--aoC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/jpan_fst_config.pb",
+      "size": 555,
+      "hash": "qJnz2osBvBPVCUpMqs5tkm0Wqk8KAlDGOUTLosbpjwwC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/jpan_lm.fst",
+      "size": 2108202,
+      "hash": "TkUpXgX6250ptwUDAC72J_t5Q9N3oPa9izV7DDJqz_AC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/jpan_lm.syms",
+      "size": 72816,
+      "hash": "jsi_L_bqBjQ3qYChszlySH1AfHuyFDpxp5YaIqNE3QoC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/khmr_2024_q3_config.pb",
+      "size": 462,
+      "hash": "WLdNVyAfIKwm_NAOJOfmg-tdwA6WnKcLfQ7zkqXDyYkC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/khmr_laoo_thai.tflite",
+      "size": 3653512,
+      "hash": "uTdbFxpPEw8VOR74Ffe4tNyAezCpWvh_IJqjJEGyh7sC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/khmr_laoo_thai_label_map.pb",
+      "size": 98318,
+      "hash": "Pzkfj2i7-yiRVNjKo21-BxXEapy89H4oy97pVHkyoZ8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/khmr_laoo_thai_prior.pb",
+      "size": 25693,
+      "hash": "uvxr3nJy0S6s4QZ8LzO2GJyQZWiWoGQ1GzT9z06-p4oC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/knda_fst_2024_q3_config.pb",
+      "size": 570,
+      "hash": "KGnExSWQ2I6tq-AK-15kyxzn7LlNMJN9QGBSodfjPg8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/knda_lm.fst",
+      "size": 2331442,
+      "hash": "7vmB2DG_tQ3pVFu2CO8e2tY_F8pYx7DwQ2oNuYVDdBoC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/knda_lm.syms",
+      "size": 1484,
+      "hash": "se-ErwsUfwJYju2yT6bgt3ZFYP7v8rjTyKETi1OV434C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/knda_sinh_telu.tflite",
+      "size": 3778488,
+      "hash": "FRtSbH_ERd_VF3L7_oS9BJ6oFs-voa_bOMn2lX5SVEwC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/knda_sinh_telu_label_map.pb",
+      "size": 132010,
+      "hash": "o2Z79zixD432UFiDG0qx8tg8kRMKUpRxjmFKPU_LYEYC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/knda_sinh_telu_prior.pb",
+      "size": 30965,
+      "hash": "TX2QlWnRC-sbpeY0df_I_s484tZao0JKLxaN_3oXgTAC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/kore.tflite",
+      "size": 3161520,
+      "hash": "7bYtkwcgUPscjKxVT_15fzsA-WAVgi42fyoQpQ5WgMgC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/kore_fst_config.pb",
+      "size": 543,
+      "hash": "IfQGIhf0lUlZDzLM4iwghTZ3HRd8TSkSPdk1ydE0yFAC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/kore_label_map.pb",
+      "size": 37170,
+      "hash": "sZZd85hUmkAdh1aOhRjKzr2vxD6cKbRZ_Rty9cUI0rUC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/kore_lm.fst",
+      "size": 2135008,
+      "hash": "HjDR3TUXFmxXD2cXkN4ZQ1xVZhnNiwUWzpUpI6b7dVAC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/kore_lm.syms",
+      "size": 87784,
+      "hash": "K1WY0UGRB7rD6vZ5-pwMG-xrPSg-NxjW6jNo9jEf5t4C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/kore_prior.pb",
+      "size": 15144,
+      "hash": "sjDrnUtW9TUTV1lX3j3LIZk4da637n6TSjZLtuYjxgQC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/laoo_2024_q3_config.pb",
+      "size": 462,
+      "hash": "alc4zthjrVk4VIogrUOtBSA_zn7w03AK7EMlzw2zLvUC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/mlym.tflite",
+      "size": 2840656,
+      "hash": "ow8l-H7Mor4nHMBk20AGXxLgGjbspWp-1ZqjkGKszNEC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/mlym_fst_config.pb",
+      "size": 543,
+      "hash": "-5Jr6DHIOwS9LERC8YSfgAdcgpb8fa4XUMtorfKav9gC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/mlym_label_map.pb",
+      "size": 23656,
+      "hash": "rT0FNMVc881UR00HEbmIPRU4yj8M18upIC3lA4ATV2MC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/mlym_lm.fst",
+      "size": 2325872,
+      "hash": "hCHQ2RsysrupGX7IoLSAc5rgXm9QmiuOGvSXx4Nie4gC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/mlym_lm.syms",
+      "size": 2214,
+      "hash": "o3Up28oabAYtIxK2GxM5OgeLi2Sl3mD4zP9WRUjaQeQC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/mlym_prior.pb",
+      "size": 6888,
+      "hash": "4Fhj5fUpn0ExKWYGP_q3pjQ1fMctmimlnN8aIo_PlAYC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/sinh_2024_q3_config.pb",
+      "size": 384,
+      "hash": "xxkNXtvMxOQQluxAtOTbabsE6LEbJdtwmc1EErnbyDcC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/taml.tflite",
+      "size": 2708648,
+      "hash": "QsjAxUC7B1RfAis7QxaH-3enRjO7yxOzpoOBUZLJ1AgC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/taml_fst_config.pb",
+      "size": 543,
+      "hash": "wwBVKP820PZpDwCsxFfhMzqTbU27t77U3E9q4Qj0sikC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/taml_label_map.pb",
+      "size": 8640,
+      "hash": "MkJIBhK2iDX56lGV33eUhv2GZDzrwj81snM26A67zB0C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/taml_lm.fst",
+      "size": 2390378,
+      "hash": "S4RwySBRyhzqhnv-yuRw47HuS5BIw72JpxTJ7St1GG8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/taml_lm.syms",
+      "size": 1760,
+      "hash": "n4-DXzMlLhktxS_bP25hocJZArCY6QZLLtScHBqc36IC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/taml_prior.pb",
+      "size": 3532,
+      "hash": "jkhuPoCH7JphejPdm91gVkbuo6Csunmpfi0yPZrC-V8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/telu_fst_2024_q3_config.pb",
+      "size": 570,
+      "hash": "TTO4Bl-hTy852BAuXK8d5vHLiUiqU6-pMBY6c3JUs20C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/telu_lm.fst",
+      "size": 2345716,
+      "hash": "nyhBcwqM1zMkcRjwAEF8GF2WkaHDAeORn8B6EegxJNgC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/telu_lm.syms",
+      "size": 1952,
+      "hash": "g-ldhHWNnVeXwV5t8B4MIYAsHbP-ESMgbiboOS-3ufEC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/tflite_langid.tflite",
+      "size": 315520,
+      "hash": "f5Mfb3wd0OxZGs53gN-RZFpFD6_INQXz_0XOXvfIRBsC"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/thai_fst_2024_q3_config.pb",
+      "size": 648,
+      "hash": "b11dsu2QicjJn8AtjEOKzaXeLYSMKH_jI2g1fyp-RT8C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/thai_lm.fst",
+      "size": 2326886,
+      "hash": "nQZ75hjD0nXxs9SyCpBdgyXdOvg4AOax5Sb507tUvA0C"
+    },
+    {
+      "name": "resources/gocr/gocr_models/line_recognition_mobile_convnext320_omni/thai_lm.syms",
+      "size": 2256,
+      "hash": "iTmr6-_VtssnQ4BlQDOnyu4ZALGk804US30q9o5X_w8C"
+    },
+    {
+      "name": "resources/gocr/layout/cluster_sort/model_v2.tflite",
+      "size": 370204,
+      "hash": "LlL2q3VQpZ2PmHglZslyzUmx3a-jlKGyZnBOKDgGPboC"
+    },
+    {
+      "name": "resources/gocr_mobile_chrome_multiscript_2024_q4_engine.binarypb",
+      "size": 13360,
+      "hash": "q7xSfPqi0SpvTJskfD37HHDrngRAMQIz53vwgG_iySUC"
+    },
+    {
+      "name": "resources/libchromescreenai.so",
+      "size": 47231536,
+      "hash": "5YC_tdy9T8eKwEY5Fb103gjErbdEGXSc-VaLCcwx8r8C"
+    },
+    {
+      "name": "resources/screen2x_config.pbtxt",
+      "size": 1234,
+      "hash": "QqARR23_CuoMFN5-0PVpTMFIJPYq8XuL9kDYEWRLtHIC"
+    },
+    {
+      "name": "resources/screen2x_model.tflite",
+      "size": 928208,
+      "hash": "3LAOp_qtqpLB571UIYP9zw-tuW5Yc5gEs5gB6OIq3n0C"
+    }
+  ]
+}

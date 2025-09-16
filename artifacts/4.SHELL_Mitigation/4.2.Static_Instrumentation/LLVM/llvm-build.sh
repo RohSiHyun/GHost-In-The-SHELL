@@ -1,0 +1,7 @@
+cmake -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_ENABLE_PROJECTS="clang;llvm;lld" \
+  -DLLVM_TARGETS_TO_BUILD="X86;NVPTX" \
+  -DLLVM_ENABLE_TERMINFO=ON \
+  -DLLVM_ENABLE_LLD=ON \
+../llvm

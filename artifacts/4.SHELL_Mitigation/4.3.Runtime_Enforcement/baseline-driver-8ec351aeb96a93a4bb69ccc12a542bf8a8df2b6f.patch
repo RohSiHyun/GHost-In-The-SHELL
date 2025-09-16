@@ -1,0 +1,20 @@
+diff --git a/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c b/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c
+index 22fd9996..04f28b28 100644
+--- a/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c
++++ b/kernel-open/nvidia-uvm/uvm_gpu_replayable_faults.c
+@@ -2948,8 +2948,15 @@ void uvm_parent_gpu_service_replayable_faults(uvm_parent_gpu_t *parent_gpu)
+         else if (status != NV_OK)
+             break;
+ 
++	ktime_t start = ktime_get();
++
+         status = service_fault_batch(parent_gpu, FAULT_SERVICE_MODE_REGULAR, batch_context);
+ 
++	ktime_t end = ktime_get();
++
++        s64 delta_ns = ktime_to_ns(ktime_sub(end, start));
++        pr_info("page fault handling took for baseline %lld ns\n", delta_ns);
++
+         // We may have issued replays even if status != NV_OK if
+         // UVM_PERF_FAULT_REPLAY_POLICY_BLOCK is being used or the fault buffer
+         // was flushed

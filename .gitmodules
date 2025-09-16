@@ -1,0 +1,21 @@
+[submodule "third_party/llvm-project-19.1.7"]
+	path = third_party/llvm-project-19.1.7
+	url = https://github.com/llvm/llvm-project.git
+[submodule "third_party/llvm-project-17.0.6"]
+	path = third_party/llvm-project-17.0.6
+	url = https://github.com/llvm/llvm-project.git
+[submodule "third_party/llvm-project-17.0.6-patch"]
+	path = third_party/llvm-project-17.0.6-patch
+	url = https://github.com/llvm/llvm-project.git
+[submodule "third_party/open-gpu-kernel-modules"]
+	path = third_party/open-gpu-kernel-modules
+	url = https://github.com/NVIDIA/open-gpu-kernel-modules.git
+[submodule "third_party/open-gpu-kernel-modules-SHELL"]
+	path = third_party/open-gpu-kernel-modules-SHELL
+	url = https://github.com/NVIDIA/open-gpu-kernel-modules.git
+[submodule "third_party/depot_tools"]
+	path = third_party/depot_tools
+	url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
+[submodule "third_party/pytorch"]
+	path = third_party/pytorch
+	url = https://github.com/pytorch/pytorch.git

@@ -1,7 +1,7 @@
 # Makefile to build SHELL and baseline with clang++
 
-CLANG       := ../../../../third_party/llvm-project-17.0.6/build/bin/clang++
-CLANG-PATCH := ../../../../third_party/llvm-project-17.0.6-patch/build/bin/clang++
+CLANG       := $(pwd)/../../../../third_party/llvm-project-17.0.6/build/bin/clang++
+CLANG-PATCH := $(pwd)/../../../../third_party/llvm-project-17.0.6-patch/build/bin/clang++
 SRC_SHELL   := weather_app-SHELL.cu
 SRC_BASE    := weather_app-baseline.cu
 TARGETS     := SHELL baseline
@@ -13,8 +13,8 @@ CUDAFLAGS   := --cuda-path=/usr/local/cuda --cuda-gpu-arch=sm_89 \
 LIBS        := -lcudart -ljemalloc
 
 # Special linker flags for SHELL build
-SHELL_LDFLAGS := -Wl,-rpath,../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
-                 -L../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
+SHELL_LDFLAGS := -Wl,-rpath,$(pwd)/../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
+                 -L$(pwd)/../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
                  -L/usr/local/cuda-12.8/lib64 \
                  -lshell
 # Baseline only needs CUDA lib dir

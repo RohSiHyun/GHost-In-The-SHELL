@@ -1,6 +1,6 @@
 # Makefile to build libattack.so with clang++
 
-CLANG       := $(pwd)/../../../../third_party/llvm-project-17.0.6-patch/build/bin/clang++
+CLANG       := ${PWD}/../../../../third_party/llvm-project-17.0.6-patch/build/bin/clang++
 SRC         := attacker_kernel.cu
 TARGET      := libattack.so
 
@@ -8,8 +8,8 @@ CXXFLAGS    := -x cuda -std=c++14 -O0 \
                -fno-stack-protector -fPIC -fcf-protection=none -fno-omit-frame-pointer -shared \
                -I/usr/local/cuda-12.8/include
 
-LDFLAGS     := -Wl,-rpath,$(pwd)/../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
-               -L$(pwd)/../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
+LDFLAGS     := -Wl,-rpath,${PWD}/../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
+               -L${PWD}/../../../4.SHELL_Mitigation/4.2.Static_Instrumentation/libSHELL/ \
                -L/usr/local/cuda-12.8/lib64
 
 LIBS        := -lshell -lcudart -ljemalloc
